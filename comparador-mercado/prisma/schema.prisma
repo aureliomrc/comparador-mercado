@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  senha     String
+  createdAt DateTime @default(now())
+  listas    Lista[]
+}
+
+model Lista {
+  id        String       @id @default(uuid())
+  nome      String
+  usuarioId String
+  usuario   Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  itens     ItemLista[]
+  createdAt DateTime     @default(now())
+}
+
+model ItemLista {
+  id          String   @id @default(uuid())
+  produtoNome String
+  listaId     String
+  lista       Lista    @relation(fields: [listaId], references: [id], onDelete: Cascade)
+}
+
+model PrecoSefaz {
+  id                   String   @id @default(uuid())
+  cnpjEstabelecimento  String
+  nomeFantasia         String
+  produtoNome          String
+  preco                Float
+  dataRegistro         DateTime @default(now())
+}
