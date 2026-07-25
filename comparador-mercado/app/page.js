@@ -41,6 +41,9 @@ export default function Home() {
   const [usandoGeo, setUsandoGeo] = useState(false);
   const [mercadoExpandido, setMercadoExpandido] = useState(null);
 
+  // Marcas de exemplo simuladas para exibição de tags
+  const marcasExemplo = ['Camil', 'Kicaldo', 'Tio João', 'Ninho', 'Qualitá', 'Nestlé', 'Zaeli', 'Prato Fino'];
+
   // Carregar dados salvos do LocalStorage
   useEffect(() => {
     const listasSalvas = localStorage.getItem('ta_quanto_listas');
@@ -60,9 +63,9 @@ export default function Home() {
           nome: 'MINHA LISTA PRINCIPAL',
           data: '21/07/2026',
           itens: [
-            { id: 1, nome: 'ARROZ', qtd: 1, un: 'UN', marcado: false, precoEstimado: 25.90 },
-            { id: 2, nome: 'FEIJÃO', qtd: 1, un: 'UN', marcado: false, precoEstimado: 8.50 },
-            { id: 3, nome: 'LEITE', qtd: 2, un: 'UN', marcado: false, precoEstimado: 5.20 },
+            { id: 1, nome: 'ARROZ', qtd: 1, un: 'UN', marcado: false, precoEstimado: 25.90, marca: 'CAMIL' },
+            { id: 2, nome: 'FEIJÃO', qtd: 1, un: 'UN', marcado: false, precoEstimado: 8.50, marca: 'KICALDO' },
+            { id: 3, nome: 'LEITE', qtd: 2, un: 'UN', marcado: false, precoEstimado: 5.20, marca: 'NINHO' },
           ]
         }
       ];
@@ -241,7 +244,8 @@ export default function Home() {
               qtd: input.qtd || 1,
               un: 'UN',
               marcado: false,
-              precoEstimado: (Math.random() * 15 + 3).toFixed(2)
+              precoEstimado: (Math.random() * 15 + 3).toFixed(2),
+              marca: marcasExemplo[Math.floor(Math.random() * marcasExemplo.length)]
             }
           ]
         };
@@ -286,16 +290,12 @@ export default function Home() {
 
   const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: '', itens: [] };
 
-  // Construir a lista de mercados para comparar (Mercados do histórico + padrões da região)
+  // Construir a lista de mercados para comparar
   const obterMercadosParaComparar = () => {
-    // Extrair nomes únicos de mercados bipados pelo usuário
     const mercadosBipadosUnicos = Array.from(new Set(historicoCupons.map(c => c.mercado)));
-
     const listaFinalMercados = [];
 
-    // Adiciona os mercados cadastrados pelos cupons
     mercadosBipadosUnicos.forEach((nomeMercado, idx) => {
-      // Gera um fator levemente diferente baseado no índice para variação de preço
       const fator = 0.88 + ((idx % 4) * 0.05); 
       listaFinalMercados.push({
         id: `bipado-${idx}`,
@@ -305,7 +305,6 @@ export default function Home() {
       });
     });
 
-    // Se houver poucos cupons, complementa com os regionais padrão
     const padroes = [
       { id: 'padrao-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
       { id: 'padrao-2', nome: 'FORT ATACADISTA', fatorMultiplicador: 1.00, origem: 'Regional' },
@@ -319,7 +318,6 @@ export default function Home() {
       }
     });
 
-    // Calcular o total para cada mercado
     const mercadosComTotais = listaFinalMercados.map(m => {
       const total = listaAtualComparacao.itens ? listaAtualComparacao.itens.reduce((acc, item) => {
         const precoBase = Number(item.precoEstimado) || 10;
@@ -333,7 +331,6 @@ export default function Home() {
       };
     });
 
-    // Ordenar do mais barato para o mais caro
     return mercadosComTotais.sort((a, b) => a.totalNum - b.totalNum);
   };
 
@@ -584,19 +581,27 @@ export default function Home() {
                     </div>
                   </div>
 
+                  {/* CASCATA COM TAG DE MARCA */}
                   {isExpandido && (
                     <div className={`p-4 border-t space-y-2 divide-y ${isMaisBarato ? 'bg-white border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
                       <p className={`text-[11px] font-extrabold uppercase tracking-wider mb-2 ${isMaisBarato ? 'text-emerald-800' : 'text-gray-600'}`}>
-                        Detalhamento dos Preços:
+                        Detalhamento dos Preços & Marcas:
                       </p>
-                      {listaAtualComparacao.itens.map(item => {
+                      {listaAtualComparacao.itens.map((item, idx) => {
                         const precoUnit = ((Number(item.precoEstimado) || 10) * mercado.fatorMultiplicador).toFixed(2);
                         const subtotal = (precoUnit * item.qtd).toFixed(2);
+                        const marcaExibida = item.marca || marcasExemplo[idx % marcasExemplo.length];
+
                         return (
                           <div key={item.id} className="pt-2 flex justify-between items-center text-xs">
                             <div>
-                              <p className="font-bold text-gray-800">{item.nome}</p>
-                              <p className="text-[10px] text-gray-400">{item.qtd} UN x R$ {precoUnit}</p>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-gray-800">{item.nome}</span>
+                                <span className="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-blue-200">
+                                  🏷️ {marcaExibida}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-400 mt-0.5">{item.qtd} UN x R$ {precoUnit}</p>
                             </div>
                             <span className={`font-bold ${isMaisBarato ? 'text-emerald-700' : 'text-gray-700'}`}>
                               R$ {subtotal}
@@ -780,9 +785,16 @@ export default function Home() {
                                 onChange={() => toggleCheck(lista.id, item.id)}
                                 className="h-4 w-4 rounded border-gray-300 text-blue-600"
                               />
-                              <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                {item.nome}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                  {item.nome}
+                                </span>
+                                {item.marca && (
+                                  <span className="text-[10px] bg-gray-100 text-gray-600 font-semibold px-2 py-0.5 rounded">
+                                    🏷️ {item.marca}
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-3">
