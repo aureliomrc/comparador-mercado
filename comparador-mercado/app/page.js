@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 export default function Home() {
   const [screen, setScreen] = useState('login'); // 'login', 'register', 'dashboard', 'comparison'
@@ -32,15 +33,60 @@ export default function Home() {
   const [novoItemQtd, setNovoItemQtd] = useState(1);
   const [listaAtivaId, setListaAtivaId] = useState(1);
 
-  // Cupom / QR Code
+  // Cupom / QR Code / Câmera
   const [showQrModal, setShowQrModal] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
   const [qrUrl, setQrUrl] = useState('');
+  const html5QrCodeRef = useRef(null);
 
   // Comparação & Geolocalização
   const [usandoGeo, setUsandoGeo] = useState(false);
   const [mercadosSelecionados, setMercadosSelecionados] = useState(['ASSAÍ INTERLAGOS', 'FORT ATACADISTA NAÇÕES UNIDAS']);
 
-  // Manipulação de Login / Cadastro
+  // Controle de ativação/desativação da Câmera no Modal
+  useEffect(() => {
+    if (showQrModal && cameraActive) {
+      const qrScanner = new Html5Qrcode("reader");
+      html5QrCodeRef.current = qrScanner;
+
+      qrScanner.start(
+        { facingMode: "environment" }, // Usa a câmera traseira do celular
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decodedText) => {
+          // Quando lê o QR Code com sucesso:
+          setQrUrl(decodedText);
+          stopCamera();
+          alert(`Cupom lido com sucesso!\nURL: ${decodedText}`);
+        },
+        (errorMessage) => {
+          // Leitura contínua em progresso...
+        }
+      ).catch((err) => {
+        console.error("Erro ao iniciar câmera:", err);
+        setCameraActive(false);
+      });
+    }
+
+    return () => {
+      stopCamera();
+    };
+  }, [showQrModal, cameraActive]);
+
+  const stopCamera = () => {
+    if (html5QrCodeRef.current) {
+      html5QrCodeRef.current.stop().then(() => {
+        html5QrCodeRef.current = null;
+        setCameraActive(false);
+      }).catch(err => console.error(err));
+    }
+  };
+
+  const handleCloseModal = () => {
+    stopCamera();
+    setShowQrModal(false);
+  };
+
+  // Funções de Autenticação
   const handleLogin = (e) => {
     e.preventDefault();
     setIsLogged(true);
@@ -101,7 +147,7 @@ export default function Home() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setUsandoGeo(true);
-          alert(`Localização obtida com sucesso! Buscando mercados num raio de 5km.`);
+          alert(`Localização obtida com sucesso! Buscando mercados próximos.`);
         },
         () => alert('Não foi possível obter sua localização.')
       );
@@ -267,7 +313,7 @@ export default function Home() {
   }
 
   // -------------------------------------------------------------
-  // TELA DE COMPARAÇÃO DE PREÇOS (COM GEOLOCALIZAÇÃO)
+  // TELA DE COMPARAÇÃO DE PREÇOS
   // -------------------------------------------------------------
   if (screen === 'comparison') {
     return (
@@ -283,8 +329,7 @@ export default function Home() {
             </button>
           </header>
 
-          {/* Cards Principais */}
-          <div className="grid grid-[#12] grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-semibold">Produtos na Lista</p>
@@ -302,7 +347,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Seção Geolocalização e Filtro de Mercados */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border-2 border-blue-500 space-y-4">
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
               <div>
@@ -330,7 +374,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Resultados e Lista de Produtos */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center space-y-3 min-h-[250px]">
               <span className="text-4xl text-gray-400">⚖️</span>
@@ -403,7 +446,6 @@ export default function Home() {
 
         {/* Card Principal da Lista */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          {/* Topo do Card */}
           <div className="p-6 border-b flex flex-col md:flex-row justify-between md:items-center gap-4">
             <div>
               <h2 className="text-lg font-black text-gray-800">{listaAtual.nome}</h2>
@@ -431,7 +473,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Form Adicionar Item */}
           <form onSubmit={adicionarItem} className="p-4 bg-gray-50 border-b flex gap-2">
             <input
               type="text"
@@ -452,7 +493,6 @@ export default function Home() {
             </button>
           </form>
 
-          {/* Lista de Itens */}
           <div className="divide-y">
             {listaAtual.itens.map(item => (
               <div key={item.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
@@ -485,36 +525,67 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Modal Bipar QR Code */}
+        {/* Modal Bipar QR Code COM CÂMERA AO VIVO */}
         {showQrModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4 shadow-2xl">
-              <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
-                📱 Bipar QR Code do Cupom Fiscal
-              </h3>
-              <p className="text-xs text-gray-500">Cole a URL lida do QR Code da Nota Fiscal SEFAZ:</p>
+              <div className="flex justify-between items-center border-b pb-2">
+                <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+                  📱 Bipar QR Code do Cupom Fiscal
+                </h3>
+                <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
+              </div>
 
-              <input
-                type="url"
-                placeholder="https://www.sefaz.gov.br/..."
-                value={qrUrl}
-                onChange={e => setQrUrl(e.target.value)}
-                className="w-full px-3 py-2 border rounded-xl text-xs focus:outline-none focus:border-blue-500"
-              />
+              {/* Área do leitor de Câmera */}
+              <div className="space-y-3">
+                {!cameraActive ? (
+                  <button
+                    onClick={() => setCameraActive(true)}
+                    className="w-full bg-[#1877f2] hover:bg-[#1162cd] text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    📷 Abrir Câmera do Celular
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div id="reader" className="w-full overflow-hidden rounded-xl border-2 border-blue-500 bg-black"></div>
+                    <button
+                      onClick={stopCamera}
+                      className="w-full bg-red-100 text-red-600 font-bold py-2 rounded-xl text-xs"
+                    >
+                      🛑 Fechar Câmera
+                    </button>
+                  </div>
+                )}
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setShowQrModal(false)} className="px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-100">
+                <div className="relative flex py-2 items-center">
+                  <div className="flex-grow border-t border-gray-200"></div>
+                  <span className="flex-shrink mx-2 text-gray-400 text-[10px] font-bold uppercase">ou digite/cole a URL</span>
+                  <div className="flex-grow border-t border-gray-200"></div>
+                </div>
+
+                <input
+                  type="url"
+                  placeholder="https://www.sefaz.gov.br/..."
+                  value={qrUrl}
+                  onChange={e => setQrUrl(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-xl text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button onClick={handleCloseModal} className="px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-100">
                   Cancelar
                 </button>
                 <button
                   onClick={() => {
-                    alert('Cupom enviado e dados importados com sucesso!');
-                    setShowQrModal(false);
+                    if (!qrUrl) return alert('Por favor, leia o QR Code ou cole a URL.');
+                    alert('Cupom processado com sucesso!');
+                    handleCloseModal();
                     setQrUrl('');
                   }}
                   className="bg-[#0d824d] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0a673d]"
                 >
-                  Importar Dados
+                  Importar Cupom
                 </button>
               </div>
             </div>
