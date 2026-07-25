@@ -362,7 +362,7 @@ export default function Home() {
         } catch (error) {
           console.error("Erro ao buscar no OpenStreetMap:", error);
           alert('Não foi possível obter a lista de mercados no momento. Usando lista padrão.');
-        } fontally {
+        } finally {
           setLoadingGeo(false);
         }
       },
