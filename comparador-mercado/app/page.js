@@ -84,9 +84,7 @@ export default function Home() {
   }, [listas]);
 
   useEffect(() => {
-    if (historicoCupons.length > 0) {
-      localStorage.setItem('ta_quanto_cupons', JSON.stringify(historicoCupons));
-    }
+    localStorage.setItem('ta_quanto_cupons', JSON.stringify(historicoCupons));
   }, [historicoCupons]);
 
   // Controle da Câmera
@@ -167,6 +165,13 @@ export default function Home() {
     setCupomPendente(null);
     setNomeFantasiaInput('');
     alert(`Cupom salvo com sucesso para o estabelecimento "${nomeFinal}"!`);
+  };
+
+  // Excluir cupom do histórico
+  const excluirCupom = (cupomId) => {
+    if (confirm('Deseja realmente remover este cupom do histórico?')) {
+      setHistoricoCupons(historicoCupons.filter(c => c.id !== cupomId));
+    }
   };
 
   // Funções de Autenticação
@@ -281,12 +286,55 @@ export default function Home() {
 
   const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: '', itens: [] };
 
-  const calcularTotalMercado = (fatorMultiplicador) => {
-    if (!listaAtualComparacao || !listaAtualComparacao.itens) return '0.00';
-    return listaAtualComparacao.itens.reduce((acc, item) => {
-      const precoBase = Number(item.precoEstimado) || 10;
-      return acc + (precoBase * item.qtd * fatorMultiplicador);
-    }, 0).toFixed(2);
+  // Construir a lista de mercados para comparar (Mercados do histórico + padrões da região)
+  const obterMercadosParaComparar = () => {
+    // Extrair nomes únicos de mercados bipados pelo usuário
+    const mercadosBipadosUnicos = Array.from(new Set(historicoCupons.map(c => c.mercado)));
+
+    const listaFinalMercados = [];
+
+    // Adiciona os mercados cadastrados pelos cupons
+    mercadosBipadosUnicos.forEach((nomeMercado, idx) => {
+      // Gera um fator levemente diferente baseado no índice para variação de preço
+      const fator = 0.88 + ((idx % 4) * 0.05); 
+      listaFinalMercados.push({
+        id: `bipado-${idx}`,
+        nome: nomeMercado,
+        fatorMultiplicador: fator,
+        origem: 'Bipado por Você'
+      });
+    });
+
+    // Se houver poucos cupons, complementa com os regionais padrão
+    const padroes = [
+      { id: 'padrao-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
+      { id: 'padrao-2', nome: 'FORT ATACADISTA', fatorMultiplicador: 1.00, origem: 'Regional' },
+      { id: 'padrao-3', nome: 'CARREFOUR', fatorMultiplicador: 1.05, origem: 'Regional' },
+      { id: 'padrao-4', nome: 'PÃO DE AÇÚCAR', fatorMultiplicador: 1.12, origem: 'Regional' }
+    ];
+
+    padroes.forEach(p => {
+      if (!listaFinalMercados.some(m => m.nome === p.nome)) {
+        listaFinalMercados.push(p);
+      }
+    });
+
+    // Calcular o total para cada mercado
+    const mercadosComTotais = listaFinalMercados.map(m => {
+      const total = listaAtualComparacao.itens ? listaAtualComparacao.itens.reduce((acc, item) => {
+        const precoBase = Number(item.precoEstimado) || 10;
+        return acc + (precoBase * item.qtd * m.fatorMultiplicador);
+      }, 0) : 0;
+
+      return {
+        ...m,
+        totalCalculado: total.toFixed(2),
+        totalNum: total
+      };
+    });
+
+    // Ordenar do mais barato para o mais caro
+    return mercadosComTotais.sort((a, b) => a.totalNum - b.totalNum);
   };
 
   // -------------------------------------------------------------
@@ -439,8 +487,7 @@ export default function Home() {
   // TELA DE COMPARAÇÃO DE PREÇOS
   // -------------------------------------------------------------
   if (screen === 'comparison') {
-    const totalAssai = calcularTotalMercado(0.92);
-    const totalFort = calcularTotalMercado(1.0);
+    const mercadosComparacao = obterMercadosParaComparar();
 
     return (
       <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
@@ -466,7 +513,7 @@ export default function Home() {
 
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-semibold">Cupons Bipados/Histórico</p>
+                <p className="text-xs text-gray-500 font-semibold">Cupons Bipados no Histórico</p>
                 <p className="text-2xl font-black text-gray-800">{historicoCupons.length}</p>
               </div>
               <span className="text-3xl">🧾</span>
@@ -477,9 +524,9 @@ export default function Home() {
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
               <div>
                 <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
-                  <span className="text-red-500">📍</span> Mercados da Região
+                  <span className="text-red-500">📍</span> Mercados da Região e Histórico
                 </h2>
-                <p className="text-xs text-gray-500">Clique no card do mercado para ver a cascata dos itens comparados</p>
+                <p className="text-xs text-gray-500">Comparação gerada com base nos seus cupons lidos e estabelecimentos locais</p>
               </div>
 
               <button
@@ -491,80 +538,77 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Cards dos Mercados com Cascata */}
+          {/* Cards Dinâmicos dos Mercados */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-emerald-50 border-2 border-emerald-500 rounded-2xl overflow-hidden shadow-sm">
-              <div 
-                onClick={() => setMercadoExpandido(mercadoExpandido === 'assai' ? null : 'assai')}
-                className="p-5 cursor-pointer relative hover:bg-emerald-100/50 transition-colors"
-              >
-                <span className="absolute top-3 right-3 bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                  🏆 Mais Barato
-                </span>
-                <h3 className="font-extrabold text-emerald-900 text-base">ASSAÍ ATACADISTA</h3>
-                <p className="text-xs text-emerald-700">Estimativa total da lista:</p>
-                <div className="flex justify-between items-end mt-1">
-                  <p className="text-3xl font-black text-emerald-600">R$ {totalAssai}</p>
-                  <span className="text-xs font-bold text-emerald-800">
-                    {mercadoExpandido === 'assai' ? 'Recolher Cascata ▲' : 'Ver Itens em Cascata ▼'}
-                  </span>
-                </div>
-              </div>
+            {mercadosComparacao.map((mercado, index) => {
+              const isMaisBarato = index === 0;
+              const isExpandido = mercadoExpandido === mercado.id;
 
-              {mercadoExpandido === 'assai' && (
-                <div className="bg-white border-t border-emerald-200 p-4 space-y-2 divide-y">
-                  <p className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider mb-2">Detalhamento dos Preços:</p>
-                  {listaAtualComparacao.itens.map(item => {
-                    const precoUnit = ((Number(item.precoEstimado) || 10) * 0.92).toFixed(2);
-                    const subtotal = (precoUnit * item.qtd).toFixed(2);
-                    return (
-                      <div key={item.id} className="pt-2 flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-bold text-gray-800">{item.nome}</p>
-                          <p className="text-[10px] text-gray-400">{item.qtd} UN x R$ {precoUnit}</p>
-                        </div>
-                        <span className="font-bold text-emerald-700">R$ {subtotal}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+              return (
+                <div 
+                  key={mercado.id} 
+                  className={`rounded-2xl overflow-hidden shadow-sm border-2 ${
+                    isMaisBarato ? 'bg-emerald-50 border-emerald-500' : 'bg-white border-gray-200'
+                  }`}
+                >
+                  <div 
+                    onClick={() => setMercadoExpandido(isExpandido ? null : mercado.id)}
+                    className="p-5 cursor-pointer relative hover:bg-gray-50/50 transition-colors"
+                  >
+                    {isMaisBarato && (
+                      <span className="absolute top-3 right-3 bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                        🏆 Mais Barato
+                      </span>
+                    )}
 
-            <div className="bg-white border-2 border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-              <div 
-                onClick={() => setMercadoExpandido(mercadoExpandido === 'fort' ? null : 'fort')}
-                className="p-5 cursor-pointer hover:bg-gray-50 transition-colors"
-              >
-                <h3 className="font-extrabold text-gray-800 text-base">FORT ATACADISTA</h3>
-                <p className="text-xs text-gray-500">Estimativa total da lista:</p>
-                <div className="flex justify-between items-end mt-1">
-                  <p className="text-3xl font-black text-gray-700">R$ {totalFort}</p>
-                  <span className="text-xs font-bold text-gray-500">
-                    {mercadoExpandido === 'fort' ? 'Recolher Cascata ▲' : 'Ver Itens em Cascata ▼'}
-                  </span>
-                </div>
-              </div>
+                    <div className="flex items-center gap-2">
+                      <h3 className={`font-extrabold text-base ${isMaisBarato ? 'text-emerald-900' : 'text-gray-800'}`}>
+                        {mercado.nome}
+                      </h3>
+                      <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded-md font-bold">
+                        {mercado.origem}
+                      </span>
+                    </div>
 
-              {mercadoExpandido === 'fort' && (
-                <div className="bg-gray-50 border-t p-4 space-y-2 divide-y">
-                  <p className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wider mb-2">Detalhamento dos Preços:</p>
-                  {listaAtualComparacao.itens.map(item => {
-                    const precoUnit = (Number(item.precoEstimado) || 10).toFixed(2);
-                    const subtotal = (precoUnit * item.qtd).toFixed(2);
-                    return (
-                      <div key={item.id} className="pt-2 flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-bold text-gray-800">{item.nome}</p>
-                          <p className="text-[10px] text-gray-400">{item.qtd} UN x R$ {precoUnit}</p>
-                        </div>
-                        <span className="font-bold text-gray-700">R$ {subtotal}</span>
-                      </div>
-                    );
-                  })}
+                    <p className={`text-xs ${isMaisBarato ? 'text-emerald-700' : 'text-gray-500'} mt-1`}>
+                      Estimativa total da lista:
+                    </p>
+
+                    <div className="flex justify-between items-end mt-1">
+                      <p className={`text-3xl font-black ${isMaisBarato ? 'text-emerald-600' : 'text-gray-700'}`}>
+                        R$ {mercado.totalCalculado}
+                      </p>
+                      <span className={`text-xs font-bold ${isMaisBarato ? 'text-emerald-800' : 'text-gray-500'}`}>
+                        {isExpandido ? 'Recolher Cascata ▲' : 'Ver Itens em Cascata ▼'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isExpandido && (
+                    <div className={`p-4 border-t space-y-2 divide-y ${isMaisBarato ? 'bg-white border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
+                      <p className={`text-[11px] font-extrabold uppercase tracking-wider mb-2 ${isMaisBarato ? 'text-emerald-800' : 'text-gray-600'}`}>
+                        Detalhamento dos Preços:
+                      </p>
+                      {listaAtualComparacao.itens.map(item => {
+                        const precoUnit = ((Number(item.precoEstimado) || 10) * mercado.fatorMultiplicador).toFixed(2);
+                        const subtotal = (precoUnit * item.qtd).toFixed(2);
+                        return (
+                          <div key={item.id} className="pt-2 flex justify-between items-center text-xs">
+                            <div>
+                              <p className="font-bold text-gray-800">{item.nome}</p>
+                              <p className="text-[10px] text-gray-400">{item.qtd} UN x R$ {precoUnit}</p>
+                            </div>
+                            <span className={`font-bold ${isMaisBarato ? 'text-emerald-700' : 'text-gray-700'}`}>
+                              R$ {subtotal}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })}
           </div>
 
           {/* Histórico de Cupons Bipados */}
@@ -578,12 +622,20 @@ export default function Home() {
             ) : (
               <div className="space-y-2 divide-y">
                 {historicoCupons.map((cupom) => (
-                  <div key={cupom.id} className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1">
-                    <div>
-                      <p className="font-bold text-gray-800">{cupom.mercado}</p>
+                  <div key={cupom.id} className="pt-2 flex items-center justify-between text-xs gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-800 truncate">{cupom.mercado}</p>
                       <p className="text-[10px] text-gray-400">Lido em {cupom.data} às {cupom.hora}</p>
+                      <p className="text-blue-600 font-mono text-[10px] truncate">{cupom.url}</p>
                     </div>
-                    <span className="text-blue-600 font-mono text-[11px] truncate max-w-xs">{cupom.url}</span>
+
+                    <button
+                      onClick={() => excluirCupom(cupom.id)}
+                      className="p-2 hover:bg-red-50 text-red-500 rounded-lg text-xs font-bold transition-colors"
+                      title="Excluir Cupom"
+                    >
+                      🗑️ Excluir
+                    </button>
                   </div>
                 ))}
               </div>
@@ -837,7 +889,7 @@ export default function Home() {
                   </label>
                   <input
                     type="text"
-                    placeholder="EX: CARREFOUR ANCHIETA, EXTRA ITaim..."
+                    placeholder="EX: CARREFOUR ANCHIETA, EXTRA ITAIM..."
                     value={nomeFantasiaInput}
                     onChange={e => setNomeFantasiaInput(e.target.value)}
                     className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white focus:outline-none focus:border-blue-500"
