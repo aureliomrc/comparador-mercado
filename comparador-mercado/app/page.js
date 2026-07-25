@@ -14,10 +14,10 @@ export default function Home() {
 
   // Persistence (LocalStorage) & Listas
   const [listas, setListas] = useState([]);
-  const [listasAbertas, setListasAbertas] = useState({}); // Controle de listas expandidas/recolhidas
+  const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
   
-  // Inputs de novos itens vinculados a cada lista: { [listaId]: { nome: '', qtd: 1 } }
+  // Inputs de novos itens vinculados a cada lista
   const [inputsItens, setInputsItens] = useState({});
 
   // Lista selecionada para comparar
@@ -32,13 +32,16 @@ export default function Home() {
   const [qrUrl, setQrUrl] = useState('');
   const html5QrCodeRef = useRef(null);
 
+  // Modal para digitar o Nome Fantasia do Mercado lido no Cupom
+  const [showNomeFantasiaModal, setShowNomeFantasiaModal] = useState(false);
+  const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
+  const [cupomPendente, setCupomPendente] = useState(null);
+
   // Comparação & Geolocalização
   const [usandoGeo, setUsandoGeo] = useState(false);
-  
-  // Controle de cascata/expansão de itens na tela de comparação
-  const [mercadoExpandido, setMercadoExpandido] = useState(null); // 'assai' | 'fort' | null
+  const [mercadoExpandido, setMercadoExpandido] = useState(null);
 
-  // Carregar dados salvos do LocalStorage ao iniciar
+  // Carregar dados salvos do LocalStorage
   useEffect(() => {
     const listasSalvas = localStorage.getItem('ta_quanto_listas');
     const cuponsSalvos = localStorage.getItem('ta_quanto_cupons');
@@ -51,7 +54,6 @@ export default function Home() {
         setListaParaCompararId(parsed[0].id);
       }
     } else {
-      // Lista Padrão de Exemplo Inicial
       const inicial = [
         {
           id: 1,
@@ -74,21 +76,20 @@ export default function Home() {
     }
   }, []);
 
-  // Salvar automaticamente no LocalStorage quando as listas mudarem
+  // Salvar automaticamente no LocalStorage
   useEffect(() => {
     if (listas.length > 0) {
       localStorage.setItem('ta_quanto_listas', JSON.stringify(listas));
     }
   }, [listas]);
 
-  // Salvar cupons no LocalStorage
   useEffect(() => {
     if (historicoCupons.length > 0) {
       localStorage.setItem('ta_quanto_cupons', JSON.stringify(historicoCupons));
     }
   }, [historicoCupons]);
 
-  // Controle de ativação/desativação da Câmera
+  // Controle da Câmera
   useEffect(() => {
     let scanner = null;
 
@@ -102,8 +103,8 @@ export default function Home() {
           { fps: 10, qrbox: { width: 220, height: 220 } },
           (decodedText) => {
             setQrUrl(decodedText);
-            processarEGuardarCupom(decodedText);
             stopCamera();
+            prepararCupomParaNome(decodedText);
           },
           () => {}
         ).catch(err => {
@@ -132,23 +133,40 @@ export default function Home() {
   const handleCloseModal = () => {
     stopCamera();
     setShowQrModal(false);
+    setQrUrl('');
   };
 
-  // Processar o Cupom Lido
-  const processarEGuardarCupom = (urlOuCodigo) => {
-    const novoCupom = {
+  // Etapa 1: Prepara o cupom lido e solicita o Nome Fantasia
+  const prepararCupomParaNome = (urlOuCodigo) => {
+    setCupomPendente({
       id: Date.now(),
       url: urlOuCodigo,
       data: new Date().toLocaleDateString('pt-BR'),
       hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      mercado: 'MERCADO REGIONAL (CUPOM BIPADO)',
+    });
+    setNomeFantasiaInput('');
+    setShowQrModal(false);
+    setShowNomeFantasiaModal(true);
+  };
+
+  // Etapa 2: Salva o cupom com o Nome Fantasia digitado pelo usuário
+  const salvarCupomComNomeFantasia = (e) => {
+    e.preventDefault();
+    if (!cupomPendente) return;
+
+    const nomeFinal = nomeFantasiaInput.trim() ? nomeFantasiaInput.toUpperCase() : 'MERCADO NÃO IDENTIFICADO';
+
+    const novoCupom = {
+      ...cupomPendente,
+      mercado: nomeFinal,
       totalItens: Math.floor(Math.random() * 5) + 3
     };
 
     setHistoricoCupons([novoCupom, ...historicoCupons]);
-    alert(`Cupom lido com sucesso e adicionado ao seu histórico!`);
-    handleCloseModal();
-    setQrUrl('');
+    setShowNomeFantasiaModal(false);
+    setCupomPendente(null);
+    setNomeFantasiaInput('');
+    alert(`Cupom salvo com sucesso para o estabelecimento "${nomeFinal}"!`);
   };
 
   // Funções de Autenticação
@@ -161,19 +179,16 @@ export default function Home() {
   const handleRegister = (e) => {
     e.preventDefault();
     if (!aceitaLgpd) {
-      alert('Você precisa aceitar os Termos de Privacidade (LGPD) para prosseguir com o cadastro.');
+      alert('Você precisa aceitar os Termos de Privacidade (LGPD) para prosseguir.');
       return;
     }
     alert('Cadastro realizado com sucesso! Faça login.');
     setScreen('login');
   };
 
-  // Alternar visualização/expansão de uma lista
+  // Alternar expansão de listas
   const toggleListaAberta = (listaId) => {
-    setListasAbertas(prev => ({
-      ...prev,
-      [listaId]: !prev[listaId]
-    }));
+    setListasAbertas(prev => ({ ...prev, [listaId]: !prev[listaId] }));
   };
 
   // Gestão de Listas
@@ -189,13 +204,11 @@ export default function Home() {
       itens: []
     };
 
-    const atualizadas = [nova, ...listas];
-    setListas(atualizadas);
+    setListas([nova, ...listas]);
     setListasAbertas(prev => ({ ...prev, [novaId]: true }));
     setNovaListaNome('');
   };
 
-  // Atualizar os inputs individuais de cada lista
   const handleInputItemChange = (listaId, campo, valor) => {
     setInputsItens(prev => ({
       ...prev,
@@ -231,49 +244,27 @@ export default function Home() {
       return l;
     }));
 
-    setInputsItens(prev => ({
-      ...prev,
-      [listaId]: { nome: '', qtd: 1 }
-    }));
+    setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
   };
 
   const removerItem = (listaId, itemId) => {
-    setListas(listas.map(l => {
-      if (l.id === listaId) {
-        return { ...l, itens: l.itens.filter(i => i.id !== itemId) };
-      }
-      return l;
-    }));
+    setListas(listas.map(l => l.id === listaId ? { ...l, itens: l.itens.filter(i => i.id !== itemId) } : l));
   };
 
   const toggleCheck = (listaId, itemId) => {
-    setListas(listas.map(l => {
-      if (l.id === listaId) {
-        return {
-          ...l,
-          itens: l.itens.map(i => i.id === itemId ? { ...i, marcado: !i.marcado } : i)
-        };
-      }
-      return l;
-    }));
+    setListas(listas.map(l => l.id === listaId ? { ...l, itens: l.itens.map(i => i.id === itemId ? { ...i, marcado: !i.marcado } : i) } : l));
   };
 
   const deletarLista = (id) => {
-    if (listas.length <= 1) {
-      alert('Você precisa ter pelo menos uma lista ativa.');
-      return;
-    }
-    const filtradas = listas.filter(l => l.id !== id);
-    setListas(filtradas);
+    if (listas.length <= 1) return alert('Você precisa ter pelo menos uma lista ativa.');
+    setListas(listas.filter(l => l.id !== id));
   };
 
-  // Abrir Tela de Comparação para uma lista específica
   const abrirComparacao = (listaId) => {
     setListaParaCompararId(listaId);
     setScreen('comparison');
   };
 
-  // Geolocalização
   const obterLocalizacao = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -290,14 +281,12 @@ export default function Home() {
 
   const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: '', itens: [] };
 
-  // Cálculo de Preços dos Mercados para Comparação
   const calcularTotalMercado = (fatorMultiplicador) => {
     if (!listaAtualComparacao || !listaAtualComparacao.itens) return '0.00';
-    const total = listaAtualComparacao.itens.reduce((acc, item) => {
+    return listaAtualComparacao.itens.reduce((acc, item) => {
       const precoBase = Number(item.precoEstimado) || 10;
       return acc + (precoBase * item.qtd * fatorMultiplicador);
-    }, 0);
-    return total.toFixed(2);
+    }, 0).toFixed(2);
   };
 
   // -------------------------------------------------------------
@@ -317,32 +306,26 @@ export default function Home() {
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">👤</span>
-                <input
-                  type="text"
-                  placeholder="Digite seu usuário"
-                  value={usuario}
-                  onChange={e => setUsuario(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0d824d]"
-                  required
-                />
-              </div>
+              <input
+                type="text"
+                placeholder="Digite seu usuário"
+                value={usuario}
+                onChange={e => setUsuario(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0d824d]"
+                required
+              />
             </div>
 
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">🔒</span>
-                <input
-                  type="password"
-                  placeholder="Digite sua senha"
-                  value={senha}
-                  onChange={e => setSenha(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0d824d]"
-                  required
-                />
-              </div>
+              <input
+                type="password"
+                placeholder="Digite sua senha"
+                value={senha}
+                onChange={e => setSenha(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0d824d]"
+                required
+              />
             </div>
 
             <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm transition-colors shadow-md">
@@ -372,7 +355,6 @@ export default function Home() {
             <h1 className="text-2xl font-bold text-[#0066a1] flex items-center justify-center gap-2">
               <span className="text-2xl">👤⁺</span> Criar Conta
             </h1>
-            <p className="text-gray-500 text-xs">Preencha seus dados para começar a poupar</p>
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
@@ -383,19 +365,19 @@ export default function Home() {
                 placeholder="Ex: JOÃO DA SILVA"
                 value={nomeCompleto}
                 onChange={e => setNomeCompleto(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0066a1]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">CPF (Apenas números)</label>
+              <label className="block text-xs font-bold text-gray-700 mb-1">CPF</label>
               <input
                 type="text"
                 placeholder="Ex: 12345678901"
                 value={cpf}
                 onChange={e => setCpf(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0066a1]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
                 required
               />
             </div>
@@ -407,7 +389,7 @@ export default function Home() {
                 placeholder="Ex: jsilva"
                 value={usuario}
                 onChange={e => setUsuario(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0066a1]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
                 required
               />
             </div>
@@ -416,10 +398,10 @@ export default function Home() {
               <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
               <input
                 type="password"
-                placeholder="Crie uma senha forte"
+                placeholder="Crie uma senha"
                 value={senha}
                 onChange={e => setSenha(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0066a1]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
                 required
               />
             </div>
@@ -430,15 +412,15 @@ export default function Home() {
                 id="lgpd"
                 checked={aceitaLgpd}
                 onChange={e => setAceitaLgpd(e.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-gray-300 text-[#0066a1] focus:ring-[#0066a1]"
+                className="mt-1 h-4 w-4 rounded border-gray-300 text-[#0066a1]"
                 required
               />
               <label htmlFor="lgpd" className="text-xs text-gray-600 leading-tight">
-                Li e concordo com os <span className="text-[#0066a1] font-bold underline cursor-pointer">Termos de Uso</span> e a Política de Privacidade (LGPD).
+                Li e concordo com os Termos de Uso e LGPD.
               </label>
             </div>
 
-            <button type="submit" className="w-full bg-[#1877f2] hover:bg-[#1162cd] text-white py-3 rounded-full font-bold text-sm transition-colors shadow-md mt-4">
+            <button type="submit" className="w-full bg-[#1877f2] text-white py-3 rounded-full font-bold text-sm mt-4">
               Concluir Cadastro
             </button>
           </form>
@@ -457,7 +439,7 @@ export default function Home() {
   // TELA DE COMPARAÇÃO DE PREÇOS
   // -------------------------------------------------------------
   if (screen === 'comparison') {
-    const totalAssai = calcularTotalMercado(0.92); // 8% mais barato
+    const totalAssai = calcularTotalMercado(0.92);
     const totalFort = calcularTotalMercado(1.0);
 
     return (
@@ -502,17 +484,15 @@ export default function Home() {
 
               <button
                 onClick={obterLocalizacao}
-                className="border-2 border-blue-500 text-blue-600 font-bold px-4 py-2 rounded-full text-xs hover:bg-blue-50 transition-colors flex items-center gap-2 self-start md:self-auto"
+                className="border-2 border-blue-500 text-blue-600 font-bold px-4 py-2 rounded-full text-xs hover:bg-blue-50 transition-colors flex items-center gap-2"
               >
                 <span>🌐</span> {usandoGeo ? 'Localização Ativada' : 'Usar Minha Localização'}
               </button>
             </div>
           </div>
 
-          {/* Cards dos Mercados com Cascata dos Itens Comparados */}
+          {/* Cards dos Mercados com Cascata */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            {/* CARD ASSAÍ */}
             <div className="bg-emerald-50 border-2 border-emerald-500 rounded-2xl overflow-hidden shadow-sm">
               <div 
                 onClick={() => setMercadoExpandido(mercadoExpandido === 'assai' ? null : 'assai')}
@@ -525,13 +505,12 @@ export default function Home() {
                 <p className="text-xs text-emerald-700">Estimativa total da lista:</p>
                 <div className="flex justify-between items-end mt-1">
                   <p className="text-3xl font-black text-emerald-600">R$ {totalAssai}</p>
-                  <span className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                  <span className="text-xs font-bold text-emerald-800">
                     {mercadoExpandido === 'assai' ? 'Recolher Cascata ▲' : 'Ver Itens em Cascata ▼'}
                   </span>
                 </div>
               </div>
 
-              {/* CASCATA DE ITENS - ASSAÍ */}
               {mercadoExpandido === 'assai' && (
                 <div className="bg-white border-t border-emerald-200 p-4 space-y-2 divide-y">
                   <p className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider mb-2">Detalhamento dos Preços:</p>
@@ -552,7 +531,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* CARD FORT */}
             <div className="bg-white border-2 border-gray-200 rounded-2xl overflow-hidden shadow-sm">
               <div 
                 onClick={() => setMercadoExpandido(mercadoExpandido === 'fort' ? null : 'fort')}
@@ -562,13 +540,12 @@ export default function Home() {
                 <p className="text-xs text-gray-500">Estimativa total da lista:</p>
                 <div className="flex justify-between items-end mt-1">
                   <p className="text-3xl font-black text-gray-700">R$ {totalFort}</p>
-                  <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                  <span className="text-xs font-bold text-gray-500">
                     {mercadoExpandido === 'fort' ? 'Recolher Cascata ▲' : 'Ver Itens em Cascata ▼'}
                   </span>
                 </div>
               </div>
 
-              {/* CASCATA DE ITENS - FORT */}
               {mercadoExpandido === 'fort' && (
                 <div className="bg-gray-50 border-t p-4 space-y-2 divide-y">
                   <p className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wider mb-2">Detalhamento dos Preços:</p>
@@ -588,7 +565,6 @@ export default function Home() {
                 </div>
               )}
             </div>
-
           </div>
 
           {/* Histórico de Cupons Bipados */}
@@ -598,7 +574,7 @@ export default function Home() {
             </h3>
 
             {historicoCupons.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">Nenhum cupom bipado ainda. Use o botão "Bipar Cupom" para salvar seus cupons fiscais aqui.</p>
+              <p className="text-xs text-gray-400 italic">Nenhum cupom bipado ainda.</p>
             ) : (
               <div className="space-y-2 divide-y">
                 {historicoCupons.map((cupom) => (
@@ -619,7 +595,7 @@ export default function Home() {
   }
 
   // -------------------------------------------------------------
-  // TELA DE DASHBOARD / LISTAS EMPILHADAS (UMA ABAIXO DA OUTRA)
+  // TELA DE DASHBOARD / LISTAS EMPILHADAS
   // -------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
@@ -655,7 +631,7 @@ export default function Home() {
           </form>
         </div>
 
-        {/* LISTAGEM EMPILHADA DE TODAS AS LISTAS */}
+        {/* LISTAGEM EMPILHADA */}
         <div className="space-y-4">
           <h2 className="text-xs font-extrabold text-gray-400 tracking-wider uppercase px-1">
             Suas Listas ({listas.length})
@@ -666,9 +642,8 @@ export default function Home() {
             const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
 
             return (
-              <div key={lista.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all">
+              <div key={lista.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 
-                {/* Cabeçalho da Lista (Clicável para expandir/recolher) */}
                 <div 
                   onClick={() => toggleListaAberta(lista.id)}
                   className="p-4 sm:p-5 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors select-none"
@@ -683,30 +658,25 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
-                      {estaAberta ? 'Recolher ▲' : 'Abrir Itens ▼'}
-                    </span>
-                  </div>
+                  <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                    {estaAberta ? 'Recolher ▲' : 'Abrir Itens ▼'}
+                  </span>
                 </div>
 
-                {/* Conteúdo Expandido da Lista */}
                 {estaAberta && (
                   <div className="border-t border-gray-100 bg-white">
-                    
-                    {/* Barra de Ações da Lista */}
                     <div className="p-3 bg-gray-50/80 border-b flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                         <button
                           onClick={() => abrirComparacao(lista.id)}
-                          className="flex-1 sm:flex-none bg-[#0d824d] hover:bg-[#0a673d] text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                          className="flex-1 sm:flex-none bg-[#0d824d] hover:bg-[#0a673d] text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors shadow-sm"
                         >
                           📊 Comparar Lista
                         </button>
 
                         <button
                           onClick={() => setShowQrModal(true)}
-                          className="flex-1 sm:flex-none border border-blue-500 text-blue-600 hover:bg-blue-50 text-xs font-bold px-3 py-2 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                          className="flex-1 sm:flex-none border border-blue-500 text-blue-600 hover:bg-blue-50 text-xs font-bold px-3 py-2 rounded-xl transition-colors"
                         >
                           📱 Bipar Cupom
                         </button>
@@ -715,20 +685,18 @@ export default function Home() {
                       <button
                         onClick={() => deletarLista(lista.id)}
                         className="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-colors text-xs font-bold"
-                        title="Excluir Lista"
                       >
                         🗑️ Excluir Lista
                       </button>
                     </div>
 
-                    {/* Form Inserir Item nesta Lista */}
                     <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-3 sm:p-4 bg-gray-50 border-b flex flex-col sm:flex-row gap-2">
                       <input
                         type="text"
                         placeholder="NOME DO ITEM (EX: LEITE)..."
                         value={inputAtual.nome}
                         onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                        className="flex-1 px-3.5 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white focus:outline-none focus:border-blue-500"
+                        className="flex-1 px-3.5 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white"
                         required
                       />
                       <div className="flex gap-2">
@@ -737,15 +705,14 @@ export default function Home() {
                           min="1"
                           value={inputAtual.qtd}
                           onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                          className="w-20 px-3 py-2 border border-gray-300 rounded-xl text-xs text-center font-bold text-gray-900 bg-white focus:outline-none"
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-xl text-xs text-center font-bold text-gray-900 bg-white"
                         />
-                        <button type="submit" className="flex-1 sm:flex-none bg-[#1877f2] hover:bg-[#1162cd] text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap">
+                        <button type="submit" className="bg-[#1877f2] text-white px-4 py-2 rounded-xl text-xs font-bold">
                           + Adicionar
                         </button>
                       </div>
                     </form>
 
-                    {/* Listagem dos Itens da Lista */}
                     <div className="divide-y">
                       {(!lista.itens || lista.itens.length === 0) ? (
                         <div className="p-6 text-center text-xs text-gray-400 italic">
@@ -753,13 +720,13 @@ export default function Home() {
                         </div>
                       ) : (
                         lista.itens.map(item => (
-                          <div key={item.id} className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                          <div key={item.id} className="p-3.5 flex items-center justify-between hover:bg-gray-50">
                             <div className="flex items-center gap-3">
                               <input
                                 type="checkbox"
                                 checked={item.marcado}
                                 onChange={() => toggleCheck(lista.id, item.id)}
-                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-0 cursor-pointer"
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600"
                               />
                               <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
                                 {item.nome}
@@ -770,7 +737,7 @@ export default function Home() {
                               <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-md">
                                 {item.qtd} UN
                               </span>
-                              <button onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold hover:underline px-1">
+                              <button onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">
                                 ✕
                               </button>
                             </div>
@@ -786,7 +753,7 @@ export default function Home() {
           })}
         </div>
 
-        {/* Modal Bipar QR Code */}
+        {/* MODAL 1: BIPAR OU COLAR QR CODE */}
         {showQrModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-md space-y-4 shadow-2xl">
@@ -801,7 +768,7 @@ export default function Home() {
                 {!cameraActive ? (
                   <button
                     onClick={() => setCameraActive(true)}
-                    className="w-full bg-[#1877f2] hover:bg-[#1162cd] text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm"
+                    className="w-full bg-[#1877f2] text-white font-bold py-3 rounded-xl text-xs shadow-sm"
                   >
                     📷 Abrir Câmera do Celular
                   </button>
@@ -828,7 +795,7 @@ export default function Home() {
                   placeholder="https://www.sefaz.gov.br/..."
                   value={qrUrl}
                   onChange={e => setQrUrl(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none"
                 />
               </div>
 
@@ -839,13 +806,65 @@ export default function Home() {
                 <button
                   onClick={() => {
                     if (!qrUrl) return alert('Por favor, leia o QR Code ou cole a URL.');
-                    processarEGuardarCupom(qrUrl);
+                    prepararCupomParaNome(qrUrl);
                   }}
-                  className="bg-[#0d824d] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0a673d]"
+                  className="bg-[#0d824d] text-white px-4 py-2 rounded-xl text-xs font-bold"
                 >
-                  Importar Cupom
+                  Continuar
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 2: EDITAR NOME FANTASIA DO ESTABELECIMENTO */}
+        {showNomeFantasiaModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-md space-y-4 shadow-2xl">
+              <div className="border-b pb-2">
+                <h3 className="text-sm sm:text-base font-extrabold text-gray-800 flex items-center gap-2">
+                  🏪 Nome do Estabelecimento
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Digite o Nome Fantasia do local para salvar no seu histórico.
+                </p>
+              </div>
+
+              <form onSubmit={salvarCupomComNomeFantasia} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Nome Fantasia / Apelido do Mercado
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="EX: CARREFOUR ANCHIETA, EXTRA ITaim..."
+                    value={nomeFantasiaInput}
+                    onChange={e => setNomeFantasiaInput(e.target.value)}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white focus:outline-none focus:border-blue-500"
+                    autoFocus
+                    required
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNomeFantasiaModal(false);
+                      setCupomPendente(null);
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-100"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-[#0d824d] hover:bg-[#0a673d] text-white px-5 py-2 rounded-xl text-xs font-bold transition-colors"
+                  >
+                    💾 Salvar Cupom
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
