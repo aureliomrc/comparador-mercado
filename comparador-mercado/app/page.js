@@ -1,9 +1,8 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
 
 export default function Home() {
-  const [screen, setScreen] = useState('login'); // 'login', 'register', 'dashboard', 'comparison'
+  const [screen, setScreen] = useState('login');
   const [isLogged, setIsLogged] = useState(false);
 
   // Autenticação
@@ -43,27 +42,31 @@ export default function Home() {
   const [usandoGeo, setUsandoGeo] = useState(false);
   const [mercadosSelecionados, setMercadosSelecionados] = useState(['ASSAÍ INTERLAGOS', 'FORT ATACADISTA NAÇÕES UNIDAS']);
 
-  // Controle de ativação/desativação da Câmera no Modal
+  // Inicializa o leitor apenas no lado do CLIENTE (Browser)
   useEffect(() => {
-    if (showQrModal && cameraActive) {
-      const qrScanner = new Html5Qrcode("reader");
-      html5QrCodeRef.current = qrScanner;
+    let scanner = null;
 
-      qrScanner.start(
-        { facingMode: "environment" }, // Usa a câmera traseira do celular
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decodedText) => {
-          // Quando lê o QR Code com sucesso:
-          setQrUrl(decodedText);
-          stopCamera();
-          alert(`Cupom lido com sucesso!\nURL: ${decodedText}`);
-        },
-        (errorMessage) => {
-          // Leitura contínua em progresso...
-        }
-      ).catch((err) => {
-        console.error("Erro ao iniciar câmera:", err);
-        setCameraActive(false);
+    if (showQrModal && cameraActive) {
+      // Importa dinamicamente para evitar erro de build no servidor (Vercel)
+      import('html5-qrcode').then(({ Html5Qrcode }) => {
+        scanner = new Html5Qrcode("reader");
+        html5QrCodeRef.current = scanner;
+
+        scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          (decodedText) => {
+            setQrUrl(decodedText);
+            stopCamera();
+            alert(`Cupom lido com sucesso!\nURL: ${decodedText}`);
+          },
+          () => {}
+        ).catch(err => {
+          console.error("Erro ao abrir câmera:", err);
+          setCameraActive(false);
+        });
+      }).catch(err => {
+        console.error("Erro ao carregar módulo de QR Code:", err);
       });
     }
 
@@ -86,7 +89,7 @@ export default function Home() {
     setShowQrModal(false);
   };
 
-  // Funções de Autenticação
+  // Autenticação
   const handleLogin = (e) => {
     e.preventDefault();
     setIsLogged(true);
@@ -145,7 +148,7 @@ export default function Home() {
   const obterLocalizacao = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
+        () => {
           setUsandoGeo(true);
           alert(`Localização obtida com sucesso! Buscando mercados próximos.`);
         },
@@ -525,7 +528,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Modal Bipar QR Code COM CÂMERA AO VIVO */}
+        {/* Modal Bipar QR Code */}
         {showQrModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4 shadow-2xl">
@@ -536,7 +539,6 @@ export default function Home() {
                 <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
               </div>
 
-              {/* Área do leitor de Câmera */}
               <div className="space-y-3">
                 {!cameraActive ? (
                   <button
@@ -550,7 +552,7 @@ export default function Home() {
                     <div id="reader" className="w-full overflow-hidden rounded-xl border-2 border-blue-500 bg-black"></div>
                     <button
                       onClick={stopCamera}
-                      className="w-full bg-red-100 text-red-600 font-bold py-2 rounded-xl text-xs"
+                      className="w-full bg-red-100 text-red-600 font-bold py-2 rounded-xl text-xs font-bold"
                     >
                       🛑 Fechar Câmera
                     </button>
