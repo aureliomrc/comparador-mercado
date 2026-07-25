@@ -310,7 +310,7 @@ export default function Home() {
     setScreen('comparison');
   };
 
-  // BUSCA DE MERCADOS REAIS VIA OPENSTREETMAP (COM FALLBACK DE SERVIDOR)
+  // BUSCA DE MERCADOS REAIS VIA OPENSTREETMAP (COM TIMEOUT RIGOROSO DE REQUISIÇÃO)
   const obterLocalizacaoEBuscarMercadosReais = () => {
     if (!navigator.geolocation) {
       alert('Seu navegador não suporta geolocalização.');
@@ -319,34 +319,49 @@ export default function Home() {
 
     setLoadingGeo(true);
 
+    // Timeout de segurança caso a geolocalização do navegador não responda
+    const geoTimeout = setTimeout(() => {
+      setLoadingGeo(false);
+      alert('A geolocalização demorou muito para responder. Verifique as permissões de GPS.');
+    }, 12000);
+
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        clearTimeout(geoTimeout);
         const { latitude, longitude } = position.coords;
 
         try {
-          // Query Overpass otimizada e limpa
-          const query = `[out:json][timeout:15];node(around:5000,${latitude},${longitude})["shop"~"supermarket|grocery|convenience|deli"];out 20;`;
+          // Query Overpass otimizada para respostas rápidas
+          const query = `[out:json][timeout:10];node(around:3000,${latitude},${longitude})["shop"~"supermarket|grocery|convenience"];out 15;`;
           
           const endpoints = [
             `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
-            `https://overpass.kumi.systems/api/interpreter?data=${encodeURIComponent(query)}`
+            `https://overpass.kumi.systems/api/interpreter?data=${encodeURIComponent(query)}`,
+            `https://maps.mail.ru/osm/tools/overpass/api/interpreter?data=${encodeURIComponent(query)}`
           ];
 
           let response = null;
+
           for (const url of endpoints) {
             try {
-              const res = await fetch(url);
+              // AbortController força a liberação do fetch em até 6 segundos por servidor
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+              const res = await fetch(url, { signal: controller.signal });
+              clearTimeout(timeoutId);
+
               if (res.ok) {
                 response = res;
                 break;
               }
             } catch (e) {
-              console.warn("Falha no servidor Overpass, tentando endpoint alternativo...", e);
+              console.warn("Servidor instável, tentando próximo servidor de mapas...", e);
             }
           }
 
           if (!response) {
-            throw new Error('Servidores de mapa indisponíveis no momento.');
+            throw new Error('Nenhum servidor de mapas respondeu a tempo.');
           }
 
           const data = await response.json();
@@ -375,21 +390,22 @@ export default function Home() {
             setUsandoGeo(true);
             alert(`Sucesso! Encontramos ${novosMercadosReais.length} mercados reais próximos a você!`);
           } else {
-            alert('Localização obtida! Porém nenhum mercado cadastrado foi localizado no raio de 5km.');
+            alert('Localização obtida! Porém nenhum mercado cadastrado foi localizado no raio de 3km.');
           }
         } catch (error) {
-          console.error("Erro ao buscar no OpenStreetMap:", error);
-          alert('Não foi possível obter a lista de mercados no momento. Verifique a conexão ou tente em instantes.');
+          console.error("Erro na requisição de mapas:", error);
+          alert('Não foi possível carregar os mercados no momento. O servidor do OpenStreetMap pode estar instável.');
         } finally {
           setLoadingGeo(false);
         }
       },
       (error) => {
+        clearTimeout(geoTimeout);
         setLoadingGeo(false);
         console.error("Erro Geolocation:", error);
-        alert('Não foi possível obter sua localização. Verifique as permissões de GPS no seu navegador.');
+        alert('Não foi possível obter sua localização. Verifique se o GPS/Localização do seu navegador está ativado.');
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 30000 }
     );
   };
 
