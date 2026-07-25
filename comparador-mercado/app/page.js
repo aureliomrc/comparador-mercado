@@ -310,7 +310,7 @@ export default function Home() {
     setScreen('comparison');
   };
 
-  // BUSCA DE MERCADOS REAIS VIA OPENSTREETMAP (OVERPASS API)
+  // BUSCA DE MERCADOS REAIS VIA OPENSTREETMAP (OVERPASS API CORRIGIDO E EXPANDIDO)
   const obterLocalizacaoEBuscarMercadosReais = () => {
     if (!navigator.geolocation) {
       alert('Seu navegador não suporta geolocalização.');
@@ -322,11 +322,10 @@ export default function Home() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        setUsandoGeo(true);
 
         try {
-          // Busca supermercados/minimercados num raio de 5000m (5km) via Overpass API
-          const query = `[out:json];node(around:5000,${latitude},${longitude})["shop"~"supermarket|grocery"];out 15;`;
+          // Query expandida para buscar nodes e ways (áreas) num raio de 10km cobrindo vários tipos de mercados
+          const query = `[out:json][timeout:15];(node(around:10000,${latitude},${longitude})["shop"~"supermarket|grocery|convenience|deli|general"];way(around:10000,${latitude},${longitude})["shop"~"supermarket|grocery|convenience|deli|general"];);out center 20;`;
           const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
           
           if (!response.ok) throw new Error('Falha na consulta do mapa');
@@ -334,11 +333,11 @@ export default function Home() {
           const data = await response.json();
           const lugares = data.elements || [];
 
-          // Filtrar nomes únicos e válidos
           const nomesEncontrados = [];
           lugares.forEach(el => {
-            if (el.tags && el.tags.name) {
-              const nomeUpper = el.tags.name.toUpperCase();
+            const nome = el.tags?.name || el.tags?.['brand'];
+            if (nome) {
+              const nomeUpper = nome.toUpperCase();
               if (!nomesEncontrados.includes(nomeUpper)) {
                 nomesEncontrados.push(nomeUpper);
               }
@@ -346,22 +345,22 @@ export default function Home() {
           });
 
           if (nomesEncontrados.length > 0) {
-            // Mapeia para o formato de mercado da nossa app
             const novosMercadosReais = nomesEncontrados.map((nome, idx) => ({
               id: `geo-real-${idx}`,
               nome: nome,
-              fatorMultiplicador: 0.85 + (Math.random() * 0.30), // Fator de variação de preço regional
+              fatorMultiplicador: 0.85 + (Math.random() * 0.30),
               origem: 'Mercado Próximo (GPS)'
             }));
 
             setMercadosReais(novosMercadosReais);
+            setUsandoGeo(true);
             alert(`Sucesso! Encontramos ${novosMercadosReais.length} mercados reais próximos a você!`);
           } else {
-            alert('Localização obtida! Porém nenhum supermercado cadastrado no mapa aberto foi localizado em 5km.');
+            alert('Localização obtida! Porém nenhum mercado com nome cadastrado foi localizado próximo.');
           }
         } catch (error) {
           console.error("Erro ao buscar no OpenStreetMap:", error);
-          alert('Não foi possível obter a lista de mercados no momento. Usando lista padrão.');
+          alert('Não foi possível obter a lista de mercados no momento. Verifique a conexão.');
         } finally {
           setLoadingGeo(false);
         }
@@ -391,15 +390,15 @@ export default function Home() {
       });
     });
 
-    // 2. Mercados da Geolocalização Real (se existirem)
-    if (mercadosReais.length > 0) {
+    // 2. Se a busca GPS já rodou, prioriza os mercados encontrados via GPS
+    if (usandoGeo && mercadosReais.length > 0) {
       mercadosReais.forEach(mr => {
         if (!listaFinalMercados.some(m => m.nome === mr.nome)) {
           listaFinalMercados.push(mr);
         }
       });
-    } else {
-      // 3. Caso não tenha ativado o GPS ou não tenha retornado nada, usa fallback regional
+    } else if (!usandoGeo) {
+      // 3. Fallback apenas se a geolocalização NÃO tiver sido ativada ainda
       const padroes = [
         { id: 'padrao-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
         { id: 'padrao-2', nome: 'FORT ATACADISTA', fatorMultiplicador: 1.00, origem: 'Regional' },
@@ -432,9 +431,7 @@ export default function Home() {
 
   // Renderizador principal das telas
   const renderScreen = () => {
-    // -------------------------------------------------------------
     // TELA DE LOGIN
-    // -------------------------------------------------------------
     if (screen === 'login' && !isLogged) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
@@ -487,9 +484,7 @@ export default function Home() {
       );
     }
 
-    // -------------------------------------------------------------
     // TELA DE CADASTRO
-    // -------------------------------------------------------------
     if (screen === 'register' && !isLogged) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
@@ -578,9 +573,7 @@ export default function Home() {
       );
     }
 
-    // -------------------------------------------------------------
     // TELA DE COMPARAÇÃO DE PREÇOS
-    // -------------------------------------------------------------
     if (screen === 'comparison') {
       const mercadosComparacao = obterMercadosParaComparar();
 
@@ -588,7 +581,6 @@ export default function Home() {
         <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
           <div className="max-w-5xl mx-auto space-y-6">
             
-            {/* CABEÇALHO */}
             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border">
               <div>
                 <span className="text-xs font-bold text-gray-400 tracking-wider uppercase">Análise de Economia</span>
@@ -596,8 +588,6 @@ export default function Home() {
               </div>
 
               <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-                
-                {/* BOTÃO BIPAR CUPOM */}
                 <button
                   type="button"
                   onClick={() => setShowQrModal(true)}
@@ -606,7 +596,6 @@ export default function Home() {
                   <span>📱</span> Bipar Cupom
                 </button>
 
-                {/* BOTÃO VOLTAR */}
                 <button 
                   type="button"
                   onClick={() => setScreen('dashboard')} 
@@ -614,7 +603,6 @@ export default function Home() {
                 >
                   ← Voltar
                 </button>
-
               </div>
             </header>
 
@@ -644,8 +632,8 @@ export default function Home() {
                   </h2>
                   <p className="text-xs text-gray-500">
                     {usandoGeo 
-                      ? `Buscamos supermercados reais até 5km de você via OpenStreetMap` 
-                      : `Clique no botão ao lado para carregar automaticamente os supermercados reais do seu bairro`}
+                      ? `Exibindo mercados reais encontrados via GPS` 
+                      : `Clique no botão ao lado para buscar supermercados e estabelecimentos próximos`}
                   </p>
                 </div>
 
@@ -660,7 +648,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Cards dos Mercados */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {mercadosComparacao.map((mercado, index) => {
                 const isMaisBarato = index === 0;
@@ -706,7 +693,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* CASCATA */}
                     {isExpandido && (
                       <div className={`p-4 border-t space-y-2 divide-y ${isMaisBarato ? 'bg-white border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
                         <p className={`text-[11px] font-extrabold uppercase tracking-wider mb-2 ${isMaisBarato ? 'text-emerald-800' : 'text-gray-600'}`}>
@@ -741,7 +727,6 @@ export default function Home() {
               })}
             </div>
 
-            {/* Histórico de Cupons Bipados */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
               <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                 <span>🧾</span> Histórico de Cupons ({historicoCupons.length})
@@ -776,14 +761,11 @@ export default function Home() {
       );
     }
 
-    // -------------------------------------------------------------
     // TELA DE DASHBOARD
-    // -------------------------------------------------------------
     return (
       <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
         <div className="max-w-3xl mx-auto space-y-4">
 
-          {/* Header */}
           <header className="flex justify-between items-center bg-white px-4 py-3 rounded-2xl shadow-sm border">
             <div className="flex items-center gap-2">
               <h1 className="text-base sm:text-lg font-extrabold text-[#0d824d] flex items-center gap-1.5">
@@ -799,7 +781,6 @@ export default function Home() {
             </button>
           </header>
 
-          {/* Criar Nova Lista */}
           <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
               <span className="text-blue-600">➕</span> Criar Nova Lista do Usuário
@@ -819,7 +800,6 @@ export default function Home() {
             </form>
           </div>
 
-          {/* LISTAGEM DE LISTAS DO USUÁRIO */}
           <div className="space-y-2.5">
             <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase px-1">
               Suas Listas ({listas.length})
@@ -838,7 +818,6 @@ export default function Home() {
                 return (
                   <div key={lista.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition-all">
                     
-                    {/* CARD DA LISTA COMO BOTÃO */}
                     <div 
                       onClick={() => toggleListaAberta(lista.id)}
                       className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors select-none"
@@ -962,7 +941,6 @@ export default function Home() {
 
   return (
     <>
-      {/* RENDERIZAÇÃO DA TELA ATIVA */}
       {renderScreen()}
 
       {/* MODAL QR CODE */}
