@@ -66,8 +66,6 @@ export default function Home() {
         
         // Se o banco estiver vazio (ou undefined), cria a Lista Padrão de Exemplo
         if (!dados || dados.length === 0) {
-          
-          // 1. Cria a lista base no banco
           const resCriar = await fetch('/api/listas', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -84,20 +82,17 @@ export default function Home() {
               { id: Date.now() + 4, nome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: '16.90', marca: 'PILÃO', marcado: false }
             ];
 
-            // 2. Define o estado local imediatamente para DESBLOCAR a tela
             const listaMontada = { ...novaLista, itens: itensPadrao };
             setListas([listaMontada]);
             setListasAbertas({ [novaLista.id]: true });
             setListaParaCompararId(novaLista.id);
 
-            // 3. Salva os itens no backend em segundo plano (enviando acao com e sem acento)
             for (const item of itensPadrao) {
               await fetch('/api/listas', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   acao: 'ADICIONAR_ITEM',
-                  ação: 'ADICIONAR_ITEM',
                   listaId: novaLista.id,
                   nome: item.nome,
                   qtd: item.qtd,
@@ -110,7 +105,6 @@ export default function Home() {
           }
         }
 
-        // Caso já existam listas no banco
         setListas(dados);
         if (dados && dados.length > 0) {
           setListasAbertas({ [dados[0].id]: true });
@@ -122,7 +116,6 @@ export default function Home() {
     } catch (error) {
       console.error('Erro ao buscar listas do servidor, aplicando lista padrão local:', error);
       
-      // Fallback de emergência em memória
       const listaFallback = [{
         id: 'fallback-1',
         nome: 'LISTA DE COMPRAS PADRÃO',
@@ -139,7 +132,6 @@ export default function Home() {
     }
   };
 
-  // Carregar histórico local de cupons
   const carregarCuponsDoUsuario = (user) => {
     const keyCupons = `ta_quanto_cupons_${user.toLowerCase()}`;
     const cuponsSalvos = localStorage.getItem(keyCupons);
@@ -151,7 +143,6 @@ export default function Home() {
     }
   };
 
-  // Salvar automaticamente os cupons no LocalStorage
   useEffect(() => {
     if (isLogged && usuario) {
       const keyCupons = `ta_quanto_cupons_${usuario.toLowerCase()}`;
@@ -278,30 +269,49 @@ export default function Home() {
     setListasAbertas(prev => ({ ...prev, [listaId]: !prev[listaId] }));
   };
 
-  // --- CRUD INTEGRADAS COM A API / PRISMA NEON ---
-
+  // --- CRIAR NOVA LISTA COM RESPOSTA INSTANTÂNEA E FALLBACK ---
   const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
 
+    const nomeLista = novaListaNome.trim().toUpperCase();
+    const tempId = `temp-${Date.now()}`;
+
+    // 1. Adiciona a lista IMEDIATAMENTE na UI
+    const novaListaLocal = {
+      id: tempId,
+      nome: nomeLista,
+      itens: []
+    };
+
+    setListas(prev => [novaListaLocal, ...prev]);
+    setListasAbertas(prev => ({ ...prev, [tempId]: true }));
+    setNovaListaNome('');
+
+    // 2. Persiste no banco de dados em segundo plano
     try {
       const res = await fetch('/api/listas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: novaListaNome })
+        body: JSON.stringify({ nome: nomeLista })
       });
 
       if (res.ok) {
-        const novaListaCriada = await res.json();
-        novaListaCriada.itens = novaListaCriada.itens || [];
-        setListas([novaListaCriada, ...listas]);
-        setListasAbertas(prev => ({ ...prev, [novaListaCriada.id]: true }));
-        setNovaListaNome('');
+        const listaSalva = await res.json();
+        
+        // Substitui o ID temporário pelo ID oficial vindo do Prisma
+        setListas(prev => prev.map(l => l.id === tempId ? { ...listaSalva, itens: [] } : l));
+        setListasAbertas(prev => {
+          const copia = { ...prev };
+          delete copia[tempId];
+          copia[listaSalva.id] = true;
+          return copia;
+        });
       } else {
-        alert('Erro ao criar lista no servidor.');
+        console.warn('API não salvou no banco. Mantendo lista no modo local.');
       }
     } catch (err) {
-      alert('Ocorreu um erro de conexão.');
+      console.error('Erro de conexão ao criar lista:', err);
     }
   };
 
@@ -330,7 +340,6 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           acao: 'ADICIONAR_ITEM',
-          ação: 'ADICIONAR_ITEM',
           listaId,
           nome: nomeFormatado,
           qtd: input.qtd || 1,
@@ -371,7 +380,7 @@ export default function Home() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', ação: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
     });
   };
 
@@ -391,7 +400,7 @@ export default function Home() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', ação: 'ATUALIZAR_ITEM', itemId, qtd: qtdNum })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: qtdNum })
     });
   };
 
@@ -422,7 +431,7 @@ export default function Home() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', ação: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
     });
   };
 

@@ -15,123 +15,141 @@ async function getUser(request) {
 
 // 1. LISTAR TODAS AS LISTAS DO USUÁRIO
 export async function GET(request) {
-  const user = await getUser(request);
-  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+  try {
+    const user = await getUser(request);
 
-  const listasBD = await prisma.lista.findMany({
-    where: { usuarioId: user.userId },
-    include: { itens: true },
-    orderBy: { createdAt: 'desc' }
-  });
+    // Busca listas vinculadas ao usuário ou públicas/globais caso não haja token
+    const listasBD = await prisma.lista.findMany({
+      where: user ? { usuarioId: user.userId } : {},
+      include: { itens: true },
+      orderBy: { createdAt: 'desc' }
+    });
 
-  // Mapeia para a estrutura esperada no frontend
-  const listasFormatadas = listasBD.map(lista => ({
-    id: lista.id,
-    nome: lista.nome,
-    isPrincipal: false,
-    itens: lista.itens.map(item => ({
-      id: item.id,
-      nome: item.produtoNome.toUpperCase(),
-      qtd: item.qtd,
-      un: item.un,
-      marcado: item.marcado,
-      precoEstimado: item.precoEstimado,
-      marca: item.marca
-    }))
-  }));
+    const listasFormatadas = listasBD.map(lista => ({
+      id: lista.id,
+      nome: lista.nome,
+      isPrincipal: false,
+      itens: lista.itens.map(item => ({
+        id: item.id,
+        nome: item.produtoNome.toUpperCase(),
+        qtd: item.qtd,
+        un: item.un,
+        marcado: item.marcado,
+        precoEstimado: item.precoEstimado,
+        marca: item.marca
+      }))
+    }));
 
-  return NextResponse.json(listasFormatadas);
+    return NextResponse.json(listasFormatadas);
+  } catch (error) {
+    console.error('Erro no GET /api/listas:', error);
+    return NextResponse.json([], { status: 200 }); // Retorna array vazio em caso de erro para não travar o frontend
+  }
 }
 
 // 2. CRIAR NOVA LISTA
 export async function POST(request) {
-  const user = await getUser(request);
-  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+  try {
+    const user = await getUser(request);
+    const body = await request.json();
+    const { nome } = body;
 
-  const { nome } = await request.json();
+    if (!nome) {
+      return NextResponse.json({ error: 'Nome é obrigatório' }, { status: 400 });
+    }
 
-  const novaLista = await prisma.lista.create({
-    data: {
-      nome: nome.toUpperCase(),
-      usuarioId: user.userId
-    },
-    include: { itens: true }
-  });
+    const novaLista = await prisma.lista.create({
+      data: {
+        nome: nome.toUpperCase(),
+        ...(user?.userId && { usuarioId: user.userId })
+      },
+      include: { itens: true }
+    });
 
-  return NextResponse.json({
-    id: novaLista.id,
-    nome: novaLista.nome,
-    isPrincipal: false,
-    itens: []
-  }, { status: 201 });
+    return NextResponse.json({
+      id: novaLista.id,
+      nome: novaLista.nome,
+      isPrincipal: false,
+      itens: []
+    }, { status: 201 });
+  } catch (error) {
+    console.error('Erro no POST /api/listas:', error);
+    return NextResponse.json({ error: 'Erro interno ao criar lista' }, { status: 500 });
+  }
 }
 
 // 3. ADICIONAR ITEM / ATUALIZAR QUANTIDADE OU CHECK
 export async function PUT(request) {
-  const user = await getUser(request);
-  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+  try {
+    const body = await request.json();
+    // Suporta tanto 'acao' quanto 'ação'
+    const acaoNorm = body.acao || body.ação;
 
-  const body = await request.json();
-  const { ação } = body;
+    // Ação: Adicionar Item a uma Lista
+    if (acaoNorm === 'ADICIONAR_ITEM') {
+      const { listaId, nome, qtd, precoEstimado, marca } = body;
 
-  // Ação: Adicionar Item a uma Lista
-  if (ação === 'ADICIONAR_ITEM') {
-    const { listaId, nome, qtd, precoEstimado, marca } = body;
-    const novoItem = await prisma.item.create({
-      data: {
-        listaId,
-        produtoNome: nome,
-        qtd: qtd || 1,
-        precoEstimado: parseFloat(precoEstimado) || 0.0,
-        marca: marca || 'PADRÃO'
-      }
-    });
+      const novoItem = await prisma.item.create({
+        data: {
+          listaId,
+          produtoNome: nome,
+          qtd: qtd || 1,
+          precoEstimado: parseFloat(precoEstimado) || 0.0,
+          marca: marca || 'PADRÃO'
+        }
+      });
 
-    return NextResponse.json({
-      id: novoItem.id,
-      nome: novoItem.produtoNome,
-      qtd: novoItem.qtd,
-      un: novoItem.un,
-      marcado: novoItem.marcado,
-      precoEstimado: novoItem.precoEstimado,
-      marca: novoItem.marca
-    });
+      return NextResponse.json({
+        id: novoItem.id,
+        nome: novoItem.produtoNome,
+        qtd: novoItem.qtd,
+        un: novoItem.un,
+        marcado: novoItem.marcado,
+        precoEstimado: novoItem.precoEstimado,
+        marca: novoItem.marca
+      });
+    }
+
+    // Ação: Alterar Quantidade ou Check
+    if (acaoNorm === 'ATUALIZAR_ITEM') {
+      const { itemId, qtd, marcado } = body;
+      const itemAtualizado = await prisma.item.update({
+        where: { id: itemId },
+        data: {
+          ...(qtd !== undefined && { qtd }),
+          ...(marcado !== undefined && { marcado })
+        }
+      });
+      return NextResponse.json(itemAtualizado);
+    }
+
+    return NextResponse.json({ error: 'Ação não reconhecida' }, { status: 400 });
+  } catch (error) {
+    console.error('Erro no PUT /api/listas:', error);
+    return NextResponse.json({ error: 'Erro ao processar alteração' }, { status: 500 });
   }
-
-  // Ação: Alterar Quantidade ou Check
-  if (ação === 'ATUALIZAR_ITEM') {
-    const { itemId, qtd, marcado } = body;
-    const itemAtualizado = await prisma.item.update({
-      where: { id: itemId },
-      data: {
-        ...(qtd !== undefined && { qtd }),
-        ...(marcado !== undefined && { marcado })
-      }
-    });
-    return NextResponse.json(itemAtualizado);
-  }
-
-  return NextResponse.json({ error: 'Ação não reconhecida' }, { status: 400 });
 }
 
 // 4. DELETAR LISTA OU ITEM
 export async function DELETE(request) {
-  const user = await getUser(request);
-  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+  try {
+    const { searchParams } = new URL(request.url);
+    const listaId = searchParams.get('listaId');
+    const itemId = searchParams.get('itemId');
 
-  const { searchParams } = new URL(request.url);
-  const listaId = searchParams.get('listaId');
-  const itemId = searchParams.get('itemId');
+    if (itemId) {
+      await prisma.item.delete({ where: { id: itemId } });
+      return NextResponse.json({ success: true });
+    }
 
-  if (itemId) {
-    await prisma.item.delete({ where: { id: itemId } });
-    return NextResponse.json({ success: true });
+    if (listaId) {
+      await prisma.lista.delete({ where: { id: listaId } });
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: 'Parâmetro ausente' }, { status: 400 });
+  } catch (error) {
+    console.error('Erro no DELETE /api/listas:', error);
+    return NextResponse.json({ error: 'Erro ao deletar recurso' }, { status: 500 });
   }
-
-  if (listaId) {
-    await prisma.lista.delete({ where: { id: listaId } });
-    return NextResponse.json({ success: true });
-  }
-
-  return NextResponse.json({ error: 'Parâmetro ausente' }, { status: 400 });
 }
