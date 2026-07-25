@@ -56,15 +56,18 @@ export default function Home() {
     return 'MARCA PADRÃO';
   };
 
-  // --- CARREGAR DADOS DO BANCO NEON COM FALLBACK DA LISTA PADRÃO ---
+  // --- CARREGAR DADOS DO BANCO NEON COM FALLBACK SEGURO ---
   const carregarListasDoBanco = async () => {
     try {
       const res = await fetch('/api/listas');
+      
       if (res.ok) {
         let dados = await res.json();
         
-        // Se o banco estiver vazio, cria a LISTA PADRÃO automaticamente
+        // Se o banco estiver vazio (ou undefined), cria a Lista Padrão de Exemplo
         if (!dados || dados.length === 0) {
+          
+          // 1. Cria a lista base no banco
           const resCriar = await fetch('/api/listas', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -74,42 +77,65 @@ export default function Home() {
           if (resCriar.ok) {
             const novaLista = await resCriar.json();
             
-            // Adiciona os itens padrões iniciais à lista criada
             const itensPadrao = [
-              { nome: 'ARROZ 5KG', qtd: 1, precoEstimado: '25.90', marca: 'CAMIL' },
-              { nome: 'FEIJAO CARIOCA 1KG', qtd: 2, precoEstimado: '7.50', marca: 'KICALDO' },
-              { nome: 'LEITE INTEGRAL 1L', qtd: 4, precoEstimado: '4.80', marca: 'NINHO' },
-              { nome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: '16.90', marca: 'PILÃO' }
+              { id: Date.now() + 1, nome: 'ARROZ 5KG', qtd: 1, precoEstimado: '25.90', marca: 'CAMIL', marcado: false },
+              { id: Date.now() + 2, nome: 'FEIJAO CARIOCA 1KG', qtd: 2, precoEstimado: '7.50', marca: 'KICALDO', marcado: false },
+              { id: Date.now() + 3, nome: 'LEITE INTEGRAL 1L', qtd: 4, precoEstimado: '4.80', marca: 'NINHO', marcado: false },
+              { id: Date.now() + 4, nome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: '16.90', marca: 'PILÃO', marcado: false }
             ];
 
+            // 2. Define o estado local imediatamente para DESBLOCAR a tela
+            const listaMontada = { ...novaLista, itens: itensPadrao };
+            setListas([listaMontada]);
+            setListasAbertas({ [novaLista.id]: true });
+            setListaParaCompararId(novaLista.id);
+
+            // 3. Salva os itens no backend em segundo plano (enviando acao com e sem acento)
             for (const item of itensPadrao) {
               await fetch('/api/listas', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                  acao: 'ADICIONAR_ITEM',
                   ação: 'ADICIONAR_ITEM',
                   listaId: novaLista.id,
-                  ...item
+                  nome: item.nome,
+                  qtd: item.qtd,
+                  precoEstimado: item.precoEstimado,
+                  marca: item.marca
                 })
-              });
+              }).catch(err => console.warn('Aviso ao persistir item inicial:', err));
             }
-
-            // Recarrega do banco para trazer com os IDs corretos
-            const resRecarregar = await fetch('/api/listas');
-            if (resRecarregar.ok) {
-              dados = await resRecarregar.json();
-            }
+            return;
           }
         }
 
+        // Caso já existam listas no banco
         setListas(dados);
         if (dados && dados.length > 0) {
           setListasAbertas({ [dados[0].id]: true });
           setListaParaCompararId(dados[0].id);
         }
+      } else {
+        throw new Error('Falha ao obter listas');
       }
     } catch (error) {
-      console.error('Erro ao buscar listas do servidor:', error);
+      console.error('Erro ao buscar listas do servidor, aplicando lista padrão local:', error);
+      
+      // Fallback de emergência em memória
+      const listaFallback = [{
+        id: 'fallback-1',
+        nome: 'LISTA DE COMPRAS PADRÃO',
+        itens: [
+          { id: 1, nome: 'ARROZ 5KG', qtd: 1, precoEstimado: '25.90', marca: 'CAMIL', marcado: false },
+          { id: 2, nome: 'FEIJAO CARIOCA 1KG', qtd: 2, precoEstimado: '7.50', marca: 'KICALDO', marcado: false },
+          { id: 3, nome: 'LEITE INTEGRAL 1L', qtd: 4, precoEstimado: '4.80', marca: 'NINHO', marcado: false },
+          { id: 4, nome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: '16.90', marca: 'PILÃO', marcado: false }
+        ]
+      }];
+      setListas(listaFallback);
+      setListasAbertas({ 'fallback-1': true });
+      setListaParaCompararId('fallback-1');
     }
   };
 
@@ -267,6 +293,7 @@ export default function Home() {
 
       if (res.ok) {
         const novaListaCriada = await res.json();
+        novaListaCriada.itens = novaListaCriada.itens || [];
         setListas([novaListaCriada, ...listas]);
         setListasAbertas(prev => ({ ...prev, [novaListaCriada.id]: true }));
         setNovaListaNome('');
@@ -302,6 +329,7 @@ export default function Home() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          acao: 'ADICIONAR_ITEM',
           ação: 'ADICIONAR_ITEM',
           listaId,
           nome: nomeFormatado,
@@ -313,7 +341,7 @@ export default function Home() {
 
       if (res.ok) {
         const itemSalvo = await res.json();
-        setListas(listas.map(l => l.id === listaId ? { ...l, itens: [...l.itens, itemSalvo] } : l));
+        setListas(listas.map(l => l.id === listaId ? { ...l, itens: [...(l.itens || []), itemSalvo] } : l));
         setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
       }
     } catch (err) {
@@ -328,7 +356,7 @@ export default function Home() {
       if (l.id === listaId) {
         return {
           ...l,
-          itens: l.itens.map(item => {
+          itens: (l.itens || []).map(item => {
             if (item.id === itemId) {
               novaQtd = Math.max(1, item.qtd + delta);
               return { ...item, qtd: novaQtd };
@@ -343,7 +371,7 @@ export default function Home() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ação: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', ação: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
     });
   };
 
@@ -354,7 +382,7 @@ export default function Home() {
       if (l.id === listaId) {
         return {
           ...l,
-          itens: l.itens.map(item => item.id === itemId ? { ...item, qtd: qtdNum } : item)
+          itens: (l.itens || []).map(item => item.id === itemId ? { ...item, qtd: qtdNum } : item)
         };
       }
       return l;
@@ -363,12 +391,12 @@ export default function Home() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ação: 'ATUALIZAR_ITEM', itemId, qtd: qtdNum })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', ação: 'ATUALIZAR_ITEM', itemId, qtd: qtdNum })
     });
   };
 
   const removerItem = async (listaId, itemId) => {
-    setListas(listas.map(l => l.id === listaId ? { ...l, itens: l.itens.filter(i => i.id !== itemId) } : l));
+    setListas(listas.map(l => l.id === listaId ? { ...l, itens: (l.itens || []).filter(i => i.id !== itemId) } : l));
     await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
   };
 
@@ -379,7 +407,7 @@ export default function Home() {
       if (l.id === listaId) {
         return {
           ...l,
-          itens: l.itens.map(i => {
+          itens: (l.itens || []).map(i => {
             if (i.id === itemId) {
               novoMarcado = !i.marcado;
               return { ...i, marcado: novoMarcado };
@@ -394,7 +422,7 @@ export default function Home() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ação: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', ação: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
     });
   };
 
@@ -532,10 +560,10 @@ export default function Home() {
     }
 
     const mercadosComTotais = listaFinalMercados.map(m => {
-      const total = listaAtualComparacao.itens ? listaAtualComparacao.itens.reduce((acc, item) => {
+      const total = (listaAtualComparacao.itens || []).reduce((acc, item) => {
         const precoBase = Number(item.precoEstimado) || 10;
         return acc + (precoBase * item.qtd * m.fatorMultiplicador);
-      }, 0) : 0;
+      }, 0);
 
       return {
         ...m,
@@ -927,6 +955,7 @@ export default function Home() {
               listas.map((lista) => {
                 const estaAberta = !!listasAbertas[lista.id];
                 const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
+                const itensLista = lista.itens || [];
 
                 return (
                   <div key={lista.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition-all">
@@ -943,7 +972,7 @@ export default function Home() {
                           {lista.nome}
                         </h3>
                         <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full">
-                          {lista.itens.length} {lista.itens.length === 1 ? 'item' : 'itens'}
+                          {itensLista.length} {itensLista.length === 1 ? 'item' : 'itens'}
                         </span>
                       </div>
 
@@ -994,12 +1023,12 @@ export default function Home() {
                         </form>
 
                         <div className="divide-y">
-                          {(!lista.itens || lista.itens.length === 0) ? (
+                          {itensLista.length === 0 ? (
                             <div className="p-4 text-center text-xs text-gray-400 italic">
                               Esta lista está vazia.
                             </div>
                           ) : (
-                            lista.itens.map(item => {
+                            itensLista.map(item => {
                               const marcaCorreta = item.marca || obterMarcaParaItem(item.nome);
                               return (
                                 <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
