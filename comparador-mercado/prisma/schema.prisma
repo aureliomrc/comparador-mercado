@@ -16,26 +16,33 @@ model Usuario {
 }
 
 model Lista {
-  id        String       @id @default(uuid())
+  id        String      @id @default(uuid())
   nome      String
   usuarioId String
-  usuario   Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario   Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   itens     ItemLista[]
-  createdAt DateTime     @default(now())
+  createdAt DateTime    @default(now())
 }
 
 model ItemLista {
-  id          String   @id @default(uuid())
-  produtoNome String
-  listaId     String
-  lista       Lista    @relation(fields: [listaId], references: [id], onDelete: Cascade)
+  id            String   @id @default(uuid())
+  produtoNome   String
+  listaId       String
+  lista         Lista    @relation(fields: [listaId], references: [id], onDelete: Cascade)
+  
+  // 🟢 CAMPOS NOVOS ACRESCENTADOS:
+  qtd           Int      @default(1)
+  un            String   @default("UN")
+  marcado       Boolean  @default(false)
+  precoEstimado Float    @default(0.0)
+  marca         String?
 }
 
 model PrecoSefaz {
-  id                   String   @id @default(uuid())
-  cnpjEstabelecimento  String
-  nomeFantasia         String
-  produtoNome          String
-  preco                Float
-  dataRegistro         DateTime @default(now())
+  id                  String   @id @default(uuid())
+  cnpjEstabelecimento String
+  nomeFantasia        String
+  produtoNome         String
+  preco               Float
+  dataRegistro        DateTime @default(now())
 }
