@@ -23,7 +23,7 @@ export default function Home() {
   // Lista selecionada para comparar
   const [listaParaCompararId, setListaParaCompararId] = useState(null);
 
-  // Cupons lidos / Histórico (LocalStorage mantido para rascunhos de cupom local)
+  // Cupons lidos / Histórico
   const [historicoCupons, setHistoricoCupons] = useState([]);
 
   // Cupom / QR Code / Câmera
@@ -56,14 +56,54 @@ export default function Home() {
     return 'MARCA PADRÃO';
   };
 
-  // --- CARREGAR DADOS DO BANCO NEON VIA API ---
+  // --- CARREGAR DADOS DO BANCO NEON COM FALLBACK DA LISTA PADRÃO ---
   const carregarListasDoBanco = async () => {
     try {
       const res = await fetch('/api/listas');
       if (res.ok) {
-        const dados = await res.json();
+        let dados = await res.json();
+        
+        // Se o banco estiver vazio, cria a LISTA PADRÃO automaticamente
+        if (!dados || dados.length === 0) {
+          const resCriar = await fetch('/api/listas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: 'LISTA DE COMPRAS PADRÃO' })
+          });
+
+          if (resCriar.ok) {
+            const novaLista = await resCriar.json();
+            
+            // Adiciona os itens padrões iniciais à lista criada
+            const itensPadrao = [
+              { nome: 'ARROZ 5KG', qtd: 1, precoEstimado: '25.90', marca: 'CAMIL' },
+              { nome: 'FEIJAO CARIOCA 1KG', qtd: 2, precoEstimado: '7.50', marca: 'KICALDO' },
+              { nome: 'LEITE INTEGRAL 1L', qtd: 4, precoEstimado: '4.80', marca: 'NINHO' },
+              { nome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: '16.90', marca: 'PILÃO' }
+            ];
+
+            for (const item of itensPadrao) {
+              await fetch('/api/listas', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  ação: 'ADICIONAR_ITEM',
+                  listaId: novaLista.id,
+                  ...item
+                })
+              });
+            }
+
+            // Recarrega do banco para trazer com os IDs corretos
+            const resRecarregar = await fetch('/api/listas');
+            if (resRecarregar.ok) {
+              dados = await resRecarregar.json();
+            }
+          }
+        }
+
         setListas(dados);
-        if (dados.length > 0) {
+        if (dados && dados.length > 0) {
           setListasAbertas({ [dados[0].id]: true });
           setListaParaCompararId(dados[0].id);
         }
@@ -214,7 +254,6 @@ export default function Home() {
 
   // --- CRUD INTEGRADAS COM A API / PRISMA NEON ---
 
-  // 1. Criar Lista
   const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
@@ -249,7 +288,6 @@ export default function Home() {
     }));
   };
 
-  // 2. Adicionar Item
   const adicionarItem = async (e, listaId) => {
     e.preventDefault();
     const input = inputsItens[listaId];
@@ -283,7 +321,6 @@ export default function Home() {
     }
   };
 
-  // 3. Alterar Quantidades
   const alterarQuantidade = async (listaId, itemId, delta) => {
     let novaQtd = 1;
 
@@ -330,13 +367,11 @@ export default function Home() {
     });
   };
 
-  // 4. Remover Item
   const removerItem = async (listaId, itemId) => {
     setListas(listas.map(l => l.id === listaId ? { ...l, itens: l.itens.filter(i => i.id !== itemId) } : l));
     await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
   };
 
-  // 5. Toggle Checkbox
   const toggleCheck = async (listaId, itemId) => {
     let novoMarcado = false;
 
@@ -363,7 +398,6 @@ export default function Home() {
     });
   };
 
-  // 6. Deletar Lista Completa
   const deletarLista = async (id) => {
     if (confirm('Deseja realmente excluir esta lista?')) {
       setListas(listas.filter(l => l.id !== id));
@@ -376,7 +410,7 @@ export default function Home() {
     setScreen('comparison');
   };
 
-  // BUSCA DE MERCADOS COM FALLBACK RESILIENTE VIA GPS
+  // BUSCA DE MERCADOS VIA GPS REAL
   const obterLocalizacaoEBuscarMercadosReais = () => {
     if (!navigator.geolocation) {
       alert('Seu navegador não suporta geolocalização.');
@@ -396,7 +430,7 @@ export default function Home() {
       setMercadosReais(listaFallback);
       setUsandoGeo(true);
       setLoadingGeo(false);
-      alert('Localização obtida! 5 mercados locais sincronizados com sucesso.');
+      alert('Localização obtida! Mercados locais sincronizados.');
     };
 
     navigator.geolocation.getCurrentPosition(
@@ -454,7 +488,7 @@ export default function Home() {
       (error) => {
         setLoadingGeo(false);
         console.error("Erro Geolocation:", error);
-        alert('Não foi possível acessar a localização do dispositivo. Verifique as permissões de GPS.');
+        alert('Não foi possível acessar a localização do dispositivo.');
       },
       { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
     );
@@ -466,7 +500,6 @@ export default function Home() {
     const mercadosBipadosUnicos = Array.from(new Set(historicoCupons.map(c => c.mercado)));
     const listaFinalMercados = [];
 
-    // 1. Mercados lidos por cupom
     mercadosBipadosUnicos.forEach((nomeMercado, idx) => {
       const fator = 0.88 + ((idx % 4) * 0.05); 
       listaFinalMercados.push({
@@ -477,7 +510,6 @@ export default function Home() {
       });
     });
 
-    // 2. Se a busca GPS já rodou
     if (usandoGeo && mercadosReais.length > 0) {
       mercadosReais.forEach(mr => {
         if (!listaFinalMercados.some(m => m.nome === mr.nome)) {
@@ -485,7 +517,6 @@ export default function Home() {
         }
       });
     } else if (!usandoGeo) {
-      // 3. Usa os padrões regionais se o GPS não tiver sido acionado ainda
       const padroes = [
         { id: 'padrao-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
         { id: 'padrao-2', nome: 'FORT ATACADISTA', fatorMultiplicador: 1.00, origem: 'Regional' },
@@ -890,8 +921,7 @@ export default function Home() {
 
             {listas.length === 0 ? (
               <div className="bg-white p-6 rounded-2xl text-center border border-dashed border-gray-300 space-y-2">
-                <p className="text-xs font-bold text-gray-500">Você não possui nenhuma lista no momento.</p>
-                <p className="text-[11px] text-gray-400">Crie uma nova lista no campo acima para começar a adicionar itens!</p>
+                <p className="text-xs font-bold text-gray-500">Carregando listas padrão do sistema...</p>
               </div>
             ) : (
               listas.map((lista) => {
@@ -990,7 +1020,6 @@ export default function Home() {
                                     </div>
                                   </div>
 
-                                  {/* --- SEÇÃO DE EDITAR QUANTIDADE (+ / - / Campo) --- */}
                                   <div className="flex items-center gap-1.5 flex-shrink-0">
                                     <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white shadow-sm">
                                       <button
