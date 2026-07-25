@@ -12,7 +12,7 @@ export default function Home() {
   const [cpf, setCpf] = useState('');
   const [aceitaLgpd, setAceitaLgpd] = useState(false);
 
-  // Persistence (LocalStorage) & Listas
+  // Persistence (LocalStorage por Usuário)
   const [listas, setListas] = useState([]);
   const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
@@ -41,13 +41,26 @@ export default function Home() {
   const [usandoGeo, setUsandoGeo] = useState(false);
   const [mercadoExpandido, setMercadoExpandido] = useState(null);
 
-  // Marcas de exemplo simuladas para exibição de tags
-  const marcasExemplo = ['Camil', 'Kicaldo', 'Tio João', 'Ninho', 'Qualitá', 'Nestlé', 'Zaeli', 'Prato Fino'];
+  // Dicionário de Marcas coerentes
+  const obterMarcaParaItem = (nomeItem) => {
+    const itemUpper = (nomeItem || '').toUpperCase();
+    if (itemUpper.includes('ARROZ')) return 'CAMIL';
+    if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
+    if (itemUpper.includes('LEITE')) return 'NINHO';
+    if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
+    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
+    if (itemUpper.includes('ÓLEO') || itemUpper.includes('OLEO')) return 'LIZA';
+    if (itemUpper.includes('MACARRÃO') || itemUpper.includes('MACARRAO')) return 'BARILLA';
+    return 'MARCA PADRÃO';
+  };
 
-  // Carregar dados salvos do LocalStorage
-  useEffect(() => {
-    const listasSalvas = localStorage.getItem('ta_quanto_listas');
-    const cuponsSalvos = localStorage.getItem('ta_quanto_cupons');
+  // Carregar dados salvos do usuário específico ao fazer Login
+  const carregarDadosDoUsuario = (user) => {
+    const keyListas = `ta_quanto_listas_${user.toLowerCase()}`;
+    const keyCupons = `ta_quanto_cupons_${user.toLowerCase()}`;
+
+    const listasSalvas = localStorage.getItem(keyListas);
+    const cuponsSalvos = localStorage.getItem(keyCupons);
 
     if (listasSalvas) {
       const parsed = JSON.parse(listasSalvas);
@@ -57,11 +70,12 @@ export default function Home() {
         setListaParaCompararId(parsed[0].id);
       }
     } else {
+      // Lista Principal Genérica Inicial para todo novo usuário
       const inicial = [
         {
           id: 1,
           nome: 'MINHA LISTA PRINCIPAL',
-          data: '21/07/2026',
+          isPrincipal: true,
           itens: [
             { id: 1, nome: 'ARROZ', qtd: 1, un: 'UN', marcado: false, precoEstimado: 25.90, marca: 'CAMIL' },
             { id: 2, nome: 'FEIJÃO', qtd: 1, un: 'UN', marcado: false, precoEstimado: 8.50, marca: 'KICALDO' },
@@ -76,19 +90,25 @@ export default function Home() {
 
     if (cuponsSalvos) {
       setHistoricoCupons(JSON.parse(cuponsSalvos));
+    } else {
+      setHistoricoCupons([]);
     }
-  }, []);
+  };
 
-  // Salvar automaticamente no LocalStorage
+  // Salvar automaticamente no LocalStorage do usuário logado
   useEffect(() => {
-    if (listas.length > 0) {
-      localStorage.setItem('ta_quanto_listas', JSON.stringify(listas));
+    if (isLogged && usuario) {
+      const keyListas = `ta_quanto_listas_${usuario.toLowerCase()}`;
+      localStorage.setItem(keyListas, JSON.stringify(listas));
     }
-  }, [listas]);
+  }, [listas, isLogged, usuario]);
 
   useEffect(() => {
-    localStorage.setItem('ta_quanto_cupons', JSON.stringify(historicoCupons));
-  }, [historicoCupons]);
+    if (isLogged && usuario) {
+      const keyCupons = `ta_quanto_cupons_${usuario.toLowerCase()}`;
+      localStorage.setItem(keyCupons, JSON.stringify(historicoCupons));
+    }
+  }, [historicoCupons, isLogged, usuario]);
 
   // Controle da Câmera
   useEffect(() => {
@@ -137,7 +157,6 @@ export default function Home() {
     setQrUrl('');
   };
 
-  // Etapa 1: Prepara o cupom lido e solicita o Nome Fantasia
   const prepararCupomParaNome = (urlOuCodigo) => {
     setCupomPendente({
       id: Date.now(),
@@ -150,7 +169,6 @@ export default function Home() {
     setShowNomeFantasiaModal(true);
   };
 
-  // Etapa 2: Salva o cupom com o Nome Fantasia digitado pelo usuário
   const salvarCupomComNomeFantasia = (e) => {
     e.preventDefault();
     if (!cupomPendente) return;
@@ -167,21 +185,29 @@ export default function Home() {
     setShowNomeFantasiaModal(false);
     setCupomPendente(null);
     setNomeFantasiaInput('');
-    alert(`Cupom salvo com sucesso para o estabelecimento "${nomeFinal}"!`);
+    alert(`Cupom salvo com sucesso para "${nomeFinal}"!`);
   };
 
-  // Excluir cupom do histórico
   const excluirCupom = (cupomId) => {
     if (confirm('Deseja realmente remover este cupom do histórico?')) {
       setHistoricoCupons(historicoCupons.filter(c => c.id !== cupomId));
     }
   };
 
-  // Funções de Autenticação
+  // Autenticação
   const handleLogin = (e) => {
     e.preventDefault();
+    if (!usuario.trim()) return alert('Digite seu nome de usuário');
     setIsLogged(true);
+    carregarDadosDoUsuario(usuario);
     setScreen('dashboard');
+  };
+
+  const handleLogout = () => {
+    setIsLogged(false);
+    setListas([]);
+    setHistoricoCupons([]);
+    setScreen('login');
   };
 
   const handleRegister = (e) => {
@@ -190,16 +216,14 @@ export default function Home() {
       alert('Você precisa aceitar os Termos de Privacidade (LGPD) para prosseguir.');
       return;
     }
-    alert('Cadastro realizado com sucesso! Faça login.');
+    alert('Cadastro realizado com sucesso! Faça login com seu usuário.');
     setScreen('login');
   };
 
-  // Alternar expansão de listas
   const toggleListaAberta = (listaId) => {
     setListasAbertas(prev => ({ ...prev, [listaId]: !prev[listaId] }));
   };
 
-  // Gestão de Listas
   const criarNovaLista = (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
@@ -208,7 +232,7 @@ export default function Home() {
     const nova = {
       id: novaId,
       nome: novaListaNome.toUpperCase(),
-      data: new Date().toLocaleDateString('pt-BR'),
+      isPrincipal: false,
       itens: []
     };
 
@@ -232,6 +256,8 @@ export default function Home() {
     const input = inputsItens[listaId];
     if (!input || !input.nome || !input.nome.trim()) return;
 
+    const nomeFormatado = input.nome.toUpperCase();
+
     setListas(listas.map(l => {
       if (l.id === listaId) {
         return {
@@ -240,12 +266,12 @@ export default function Home() {
             ...l.itens,
             {
               id: Date.now(),
-              nome: input.nome.toUpperCase(),
+              nome: nomeFormatado,
               qtd: input.qtd || 1,
               un: 'UN',
               marcado: false,
               precoEstimado: (Math.random() * 15 + 3).toFixed(2),
-              marca: marcasExemplo[Math.floor(Math.random() * marcasExemplo.length)]
+              marca: obterMarcaParaItem(nomeFormatado)
             }
           ]
         };
@@ -264,9 +290,16 @@ export default function Home() {
     setListas(listas.map(l => l.id === listaId ? { ...l, itens: l.itens.map(i => i.id === itemId ? { ...i, marcado: !i.marcado } : i) } : l));
   };
 
+  // PERMITE EXCLUIR QUALQUER LISTA (INCLUSIVE A PRINCIPAL)
   const deletarLista = (id) => {
-    if (listas.length <= 1) return alert('Você precisa ter pelo menos uma lista ativa.');
-    setListas(listas.filter(l => l.id !== id));
+    const listaAlvo = listas.find(l => l.id === id);
+    const mensagem = listaAlvo?.isPrincipal 
+      ? 'Deseja realmente excluir a Lista Principal?' 
+      : 'Deseja realmente excluir esta lista?';
+
+    if (confirm(mensagem)) {
+      setListas(listas.filter(l => l.id !== id));
+    }
   };
 
   const abrirComparacao = (listaId) => {
@@ -288,9 +321,8 @@ export default function Home() {
     }
   };
 
-  const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: '', itens: [] };
+  const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: 'NENHUMA LISTA', itens: [] };
 
-  // Construir a lista de mercados para comparar
   const obterMercadosParaComparar = () => {
     const mercadosBipadosUnicos = Array.from(new Set(historicoCupons.map(c => c.mercado)));
     const listaFinalMercados = [];
@@ -345,7 +377,7 @@ export default function Home() {
             <h1 className="text-3xl font-extrabold text-[#0d824d] flex items-center justify-center gap-2">
               <span className="text-3xl">🛒</span> TÁ QUANTO?
             </h1>
-            <p className="text-gray-600 text-sm font-medium">Faça login para gerenciar suas economias</p>
+            <p className="text-gray-600 text-sm font-medium">Faça login para acessar suas listas exclusivas</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
@@ -353,7 +385,7 @@ export default function Home() {
               <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
               <input
                 type="text"
-                placeholder="Digite seu usuário"
+                placeholder="Digite seu usuário (ex: joao)"
                 value={usuario}
                 onChange={e => setUsuario(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0d824d]"
@@ -390,7 +422,7 @@ export default function Home() {
   }
 
   // -------------------------------------------------------------
-  // TELA DE CADASTRO COM LGPD
+  // TELA DE CADASTRO
   // -------------------------------------------------------------
   if (screen === 'register' && !isLogged) {
     return (
@@ -489,18 +521,28 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
         <div className="max-w-5xl mx-auto space-y-6">
-          <header className="flex justify-between items-center">
+          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border">
             <div>
               <span className="text-xs font-bold text-gray-400 tracking-wider uppercase">Análise de Economia</span>
               <h1 className="text-xl sm:text-2xl font-black text-gray-800">{listaAtualComparacao.nome}</h1>
             </div>
-            <button onClick={() => setScreen('dashboard')} className="text-xs sm:text-sm font-bold text-[#0066a1] hover:underline">
-              ← Voltar para Minhas Listas
-            </button>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+              <button
+                onClick={() => setShowQrModal(true)}
+                className="bg-[#1877f2] hover:bg-[#1162cd] text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-sm transition-colors"
+              >
+                <span>📱</span> Bipar Cupom
+              </button>
+
+              <button onClick={() => setScreen('dashboard')} className="text-xs font-bold text-[#0066a1] hover:underline px-2">
+                ← Voltar
+              </button>
+            </div>
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-semibold">Produtos nesta Lista</p>
                 <p className="text-2xl font-black text-gray-800">{listaAtualComparacao.itens?.length || 0}</p>
@@ -508,7 +550,7 @@ export default function Home() {
               <span className="text-3xl">🧺</span>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-semibold">Cupons Bipados no Histórico</p>
                 <p className="text-2xl font-black text-gray-800">{historicoCupons.length}</p>
@@ -517,13 +559,13 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow-sm border-2 border-blue-500 space-y-4">
-            <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+          <div className="bg-white p-4 rounded-2xl shadow-sm border-2 border-blue-500 space-y-3">
+            <div className="flex flex-col md:flex-row justify-between md:items-center gap-3">
               <div>
                 <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                   <span className="text-red-500">📍</span> Mercados da Região e Histórico
                 </h2>
-                <p className="text-xs text-gray-500">Comparação gerada com base nos seus cupons lidos e estabelecimentos locais</p>
+                <p className="text-xs text-gray-500">Comparação com base nos seus cupons lidos e estabelecimentos locais</p>
               </div>
 
               <button
@@ -535,7 +577,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Cards Dinâmicos dos Mercados */}
+          {/* Cards dos Mercados */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {mercadosComparacao.map((mercado, index) => {
               const isMaisBarato = index === 0;
@@ -550,7 +592,7 @@ export default function Home() {
                 >
                   <div 
                     onClick={() => setMercadoExpandido(isExpandido ? null : mercado.id)}
-                    className="p-5 cursor-pointer relative hover:bg-gray-50/50 transition-colors"
+                    className="p-4 cursor-pointer relative hover:bg-gray-50/50 transition-colors"
                   >
                     {isMaisBarato && (
                       <span className="absolute top-3 right-3 bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
@@ -568,11 +610,11 @@ export default function Home() {
                     </div>
 
                     <p className={`text-xs ${isMaisBarato ? 'text-emerald-700' : 'text-gray-500'} mt-1`}>
-                      Estimativa total da lista:
+                      Estimativa total:
                     </p>
 
                     <div className="flex justify-between items-end mt-1">
-                      <p className={`text-3xl font-black ${isMaisBarato ? 'text-emerald-600' : 'text-gray-700'}`}>
+                      <p className={`text-2xl font-black ${isMaisBarato ? 'text-emerald-600' : 'text-gray-700'}`}>
                         R$ {mercado.totalCalculado}
                       </p>
                       <span className={`text-xs font-bold ${isMaisBarato ? 'text-emerald-800' : 'text-gray-500'}`}>
@@ -581,16 +623,16 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* CASCATA COM TAG DE MARCA */}
+                  {/* CASCATA */}
                   {isExpandido && (
                     <div className={`p-4 border-t space-y-2 divide-y ${isMaisBarato ? 'bg-white border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
                       <p className={`text-[11px] font-extrabold uppercase tracking-wider mb-2 ${isMaisBarato ? 'text-emerald-800' : 'text-gray-600'}`}>
                         Detalhamento dos Preços & Marcas:
                       </p>
-                      {listaAtualComparacao.itens.map((item, idx) => {
+                      {listaAtualComparacao.itens?.map((item) => {
                         const precoUnit = ((Number(item.precoEstimado) || 10) * mercado.fatorMultiplicador).toFixed(2);
                         const subtotal = (precoUnit * item.qtd).toFixed(2);
-                        const marcaExibida = item.marca || marcasExemplo[idx % marcasExemplo.length];
+                        const marcaExibida = item.marca || obterMarcaParaItem(item.nome);
 
                         return (
                           <div key={item.id} className="pt-2 flex justify-between items-center text-xs">
@@ -617,13 +659,13 @@ export default function Home() {
           </div>
 
           {/* Histórico de Cupons Bipados */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
             <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-              <span>🧾</span> Histórico de Cupons Bipados ({historicoCupons.length})
+              <span>🧾</span> Histórico de Cupons ({historicoCupons.length})
             </h3>
 
             {historicoCupons.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">Nenhum cupom bipado ainda.</p>
+              <p className="text-xs text-gray-400 italic">Nenhum cupom bipado por este usuário ainda.</p>
             ) : (
               <div className="space-y-2 divide-y">
                 {historicoCupons.map((cupom) => (
@@ -631,12 +673,11 @@ export default function Home() {
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-gray-800 truncate">{cupom.mercado}</p>
                       <p className="text-[10px] text-gray-400">Lido em {cupom.data} às {cupom.hora}</p>
-                      <p className="text-blue-600 font-mono text-[10px] truncate">{cupom.url}</p>
                     </div>
 
                     <button
                       onClick={() => excluirCupom(cupom.id)}
-                      className="p-2 hover:bg-red-50 text-red-500 rounded-lg text-xs font-bold transition-colors"
+                      className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg text-xs font-bold transition-colors"
                       title="Excluir Cupom"
                     >
                       🗑️ Excluir
@@ -652,172 +693,183 @@ export default function Home() {
   }
 
   // -------------------------------------------------------------
-  // TELA DE DASHBOARD / LISTAS EMPILHADAS
+  // TELA DE DASHBOARD
   // -------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
-      <div className="max-w-4xl mx-auto space-y-5">
+      <div className="max-w-3xl mx-auto space-y-4">
 
         {/* Header */}
-        <header className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border">
-          <h1 className="text-lg sm:text-xl font-extrabold text-[#0d824d] flex items-center gap-2">
-            🛒 TÁ QUANTO?
-          </h1>
-          <button onClick={() => { setIsLogged(false); setScreen('login'); }} className="text-xs font-bold text-red-500 hover:underline">
+        <header className="flex justify-between items-center bg-white px-4 py-3 rounded-2xl shadow-sm border">
+          <div className="flex items-center gap-2">
+            <h1 className="text-base sm:text-lg font-extrabold text-[#0d824d] flex items-center gap-1.5">
+              🛒 TÁ QUANTO?
+            </h1>
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+              👤 {usuario.toUpperCase()}
+            </span>
+          </div>
+
+          <button onClick={handleLogout} className="text-xs font-bold text-red-500 hover:underline">
             Sair
           </button>
         </header>
 
-        {/* Seção Criar Nova Lista */}
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        {/* Criar Nova Lista */}
+        <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
-            <span className="text-blue-600">➕</span> Criar Nova Lista de Compras
+            <span className="text-blue-600">➕</span> Criar Nova Lista do Usuário
           </div>
-          <form onSubmit={criarNovaLista} className="flex flex-col sm:flex-row gap-2">
+          <form onSubmit={criarNovaLista} className="flex gap-2">
             <input
               type="text"
-              placeholder="EX: CHURRASCO, SEMANA, LIMPEZA..."
+              placeholder="EX: MENSAL, CHURRASCO, FARMÁCIA..."
               value={novaListaNome}
               onChange={e => setNovaListaNome(e.target.value)}
-              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white focus:outline-none focus:border-blue-500"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 uppercase bg-white focus:outline-none focus:border-blue-500"
               required
             />
-            <button type="submit" className="bg-[#1877f2] hover:bg-[#1162cd] text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-colors">
-              + Criar Lista
+            <button type="submit" className="bg-[#1877f2] text-white px-4 py-2 rounded-xl text-xs font-bold">
+              + Criar
             </button>
           </form>
         </div>
 
-        {/* LISTAGEM EMPILHADA */}
-        <div className="space-y-4">
-          <h2 className="text-xs font-extrabold text-gray-400 tracking-wider uppercase px-1">
+        {/* LISTAGEM DE LISTAS DO USUÁRIO */}
+        <div className="space-y-2.5">
+          <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase px-1">
             Suas Listas ({listas.length})
           </h2>
 
-          {listas.map((lista) => {
-            const estaAberta = !!listasAbertas[lista.id];
-            const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
+          {listas.length === 0 ? (
+            <div className="bg-white p-6 rounded-2xl text-center border border-dashed border-gray-300 space-y-2">
+              <p className="text-xs font-bold text-gray-500">Você não possui nenhuma lista no momento.</p>
+              <p className="text-[11px] text-gray-400">Crie uma nova lista no campo acima para começar a adicionar itens!</p>
+            </div>
+          ) : (
+            listas.map((lista) => {
+              const estaAberta = !!listasAbertas[lista.id];
+              const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
 
-            return (
-              <div key={lista.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                
-                <div 
-                  onClick={() => toggleListaAberta(lista.id)}
-                  className="p-4 sm:p-5 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors select-none"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg text-blue-600 font-bold">
-                      {estaAberta ? '📂' : '📁'}
-                    </span>
-                    <div>
-                      <h3 className="text-sm sm:text-base font-extrabold text-gray-800">{lista.nome}</h3>
-                      <p className="text-[11px] text-gray-400">{lista.itens.length} itens • Criada em {lista.data}</p>
+              return (
+                <div key={lista.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition-all">
+                  
+                  {/* CARD DA LISTA COMO BOTÃO */}
+                  <div 
+                    onClick={() => toggleListaAberta(lista.id)}
+                    className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base text-blue-600 font-bold">
+                        {estaAberta ? '📂' : '📁'}
+                      </span>
+                      <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 tracking-wide uppercase flex items-center gap-2">
+                        {lista.nome}
+                        {lista.isPrincipal && (
+                          <span className="text-[9px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-extrabold">
+                            GLOBAL
+                          </span>
+                        )}
+                      </h3>
+                      <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                        {lista.itens.length} {lista.itens.length === 1 ? 'item' : 'itens'}
+                      </span>
                     </div>
+
+                    <span className="text-[11px] font-bold text-gray-500">
+                      {estaAberta ? '▲' : '▼'}
+                    </span>
                   </div>
 
-                  <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
-                    {estaAberta ? 'Recolher ▲' : 'Abrir Itens ▼'}
-                  </span>
-                </div>
-
-                {estaAberta && (
-                  <div className="border-t border-gray-100 bg-white">
-                    <div className="p-3 bg-gray-50/80 border-b flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  {estaAberta && (
+                    <div className="border-t border-gray-100 bg-white">
+                      <div className="p-2.5 bg-gray-50/80 border-b flex items-center justify-between gap-2">
                         <button
                           onClick={() => abrirComparacao(lista.id)}
-                          className="flex-1 sm:flex-none bg-[#0d824d] hover:bg-[#0a673d] text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors shadow-sm"
+                          className="bg-[#0d824d] hover:bg-[#0a673d] text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors shadow-sm"
                         >
-                          📊 Comparar Lista
+                          📊 Comparar Preços desta Lista
                         </button>
 
                         <button
-                          onClick={() => setShowQrModal(true)}
-                          className="flex-1 sm:flex-none border border-blue-500 text-blue-600 hover:bg-blue-50 text-xs font-bold px-3 py-2 rounded-xl transition-colors"
+                          onClick={() => deletarLista(lista.id)}
+                          className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg text-xs font-bold"
                         >
-                          📱 Bipar Cupom
+                          🗑️ Excluir Lista
                         </button>
                       </div>
 
-                      <button
-                        onClick={() => deletarLista(lista.id)}
-                        className="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-colors text-xs font-bold"
-                      >
-                        🗑️ Excluir Lista
-                      </button>
-                    </div>
-
-                    <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-3 sm:p-4 bg-gray-50 border-b flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="text"
-                        placeholder="NOME DO ITEM (EX: LEITE)..."
-                        value={inputAtual.nome}
-                        onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                        className="flex-1 px-3.5 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white"
-                        required
-                      />
-                      <div className="flex gap-2">
+                      <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="NOME DO ITEM..."
+                          value={inputAtual.nome}
+                          onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
+                          className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white"
+                          required
+                        />
                         <input
                           type="number"
                           min="1"
                           value={inputAtual.qtd}
                           onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                          className="w-20 px-3 py-2 border border-gray-300 rounded-xl text-xs text-center font-bold text-gray-900 bg-white"
+                          className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white"
                         />
-                        <button type="submit" className="bg-[#1877f2] text-white px-4 py-2 rounded-xl text-xs font-bold">
+                        <button type="submit" className="bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold">
                           + Adicionar
                         </button>
-                      </div>
-                    </form>
+                      </form>
 
-                    <div className="divide-y">
-                      {(!lista.itens || lista.itens.length === 0) ? (
-                        <div className="p-6 text-center text-xs text-gray-400 italic">
-                          Esta lista está vazia. Adicione um item no campo acima!
-                        </div>
-                      ) : (
-                        lista.itens.map(item => (
-                          <div key={item.id} className="p-3.5 flex items-center justify-between hover:bg-gray-50">
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                checked={item.marcado}
-                                onChange={() => toggleCheck(lista.id, item.id)}
-                                className="h-4 w-4 rounded border-gray-300 text-blue-600"
-                              />
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                  {item.nome}
-                                </span>
-                                {item.marca && (
-                                  <span className="text-[10px] bg-gray-100 text-gray-600 font-semibold px-2 py-0.5 rounded">
-                                    🏷️ {item.marca}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-md">
-                                {item.qtd} UN
-                              </span>
-                              <button onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">
-                                ✕
-                              </button>
-                            </div>
+                      <div className="divide-y">
+                        {(!lista.itens || lista.itens.length === 0) ? (
+                          <div className="p-4 text-center text-xs text-gray-400 italic">
+                            Esta lista está vazia.
                           </div>
-                        ))
-                      )}
-                    </div>
+                        ) : (
+                          lista.itens.map(item => {
+                            const marcaCorreta = item.marca || obterMarcaParaItem(item.nome);
+                            return (
+                              <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50">
+                                <div className="flex items-center gap-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.marcado}
+                                    onChange={() => toggleCheck(lista.id, item.id)}
+                                    className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600"
+                                  />
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                      {item.nome}
+                                    </span>
+                                    <span className="text-[10px] bg-gray-100 text-gray-600 font-bold px-1.5 py-0.5 rounded">
+                                      🏷️ {marcaCorreta}
+                                    </span>
+                                  </div>
+                                </div>
 
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
+                                    {item.qtd} UN
+                                  </span>
+                                  <button onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
 
-        {/* MODAL 1: BIPAR OU COLAR QR CODE */}
+        {/* MODAL QR CODE */}
         {showQrModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-md space-y-4 shadow-2xl">
@@ -881,7 +933,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* MODAL 2: EDITAR NOME FANTASIA DO ESTABELECIMENTO */}
+        {/* MODAL NOME FANTASIA */}
         {showNomeFantasiaModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-md space-y-4 shadow-2xl">
