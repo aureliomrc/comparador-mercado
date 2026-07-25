@@ -37,8 +37,10 @@ export default function Home() {
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [cupomPendente, setCupomPendente] = useState(null);
 
-  // Comparação & Geolocalização
+  // Comparação, Geolocalização e Mercados Reais
   const [usandoGeo, setUsandoGeo] = useState(false);
+  const [loadingGeo, setLoadingGeo] = useState(false);
+  const [mercadosReais, setMercadosReais] = useState([]);
   const [mercadoExpandido, setMercadoExpandido] = useState(null);
 
   // Dicionário de Marcas
@@ -207,6 +209,8 @@ export default function Home() {
     setIsLogged(false);
     setListas([]);
     setHistoricoCupons([]);
+    setMercadosReais([]);
+    setUsandoGeo(false);
     setScreen('login');
   };
 
@@ -306,18 +310,68 @@ export default function Home() {
     setScreen('comparison');
   };
 
-  const obterLocalizacao = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        () => {
-          setUsandoGeo(true);
-          alert(`Localização obtida! Buscando mercados próximos no raio de 5km.`);
-        },
-        () => alert('Não foi possível obter sua localização.')
-      );
-    } else {
+  // BUSCA DE MERCADOS REAIS VIA OPENSTREETMAP (OVERPASS API)
+  const obterLocalizacaoEBuscarMercadosReais = () => {
+    if (!navigator.geolocation) {
       alert('Seu navegador não suporta geolocalização.');
+      return;
     }
+
+    setLoadingGeo(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setUsandoGeo(true);
+
+        try {
+          // Busca supermercados/minimercados num raio de 5000m (5km) via Overpass API
+          const query = `[out:json];node(around:5000,${latitude},${longitude})["shop"~"supermarket|grocery"];out 15;`;
+          const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+          
+          if (!response.ok) throw new Error('Falha na consulta do mapa');
+
+          const data = await response.json();
+          const lugares = data.elements || [];
+
+          // Filtrar nomes únicos e válidos
+          const nomesEncontrados = [];
+          lugares.forEach(el => {
+            if (el.tags && el.tags.name) {
+              const nomeUpper = el.tags.name.toUpperCase();
+              if (!nomesEncontrados.includes(nomeUpper)) {
+                nomesEncontrados.push(nomeUpper);
+              }
+            }
+          });
+
+          if (nomesEncontrados.length > 0) {
+            // Mapeia para o formato de mercado da nossa app
+            const novosMercadosReais = nomesEncontrados.map((nome, idx) => ({
+              id: `geo-real-${idx}`,
+              nome: nome,
+              fatorMultiplicador: 0.85 + (Math.random() * 0.30), // Fator de variação de preço regional
+              origem: 'Mercado Próximo (GPS)'
+            }));
+
+            setMercadosReais(novosMercadosReais);
+            alert(`Sucesso! Encontramos ${novosMercadosReais.length} mercados reais próximos a você!`);
+          } else {
+            alert('Localização obtida! Porém nenhum supermercado cadastrado no mapa aberto foi localizado em 5km.');
+          }
+        } catch (error) {
+          console.error("Erro ao buscar no OpenStreetMap:", error);
+          alert('Não foi possível obter a lista de mercados no momento. Usando lista padrão.');
+        } fontally {
+          setLoadingGeo(false);
+        }
+      },
+      (error) => {
+        setLoadingGeo(false);
+        console.error("Erro Geolocation:", error);
+        alert('Não foi possível obter sua localização. Verifique as permissões de GPS no seu navegador.');
+      }
+    );
   };
 
   const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: 'NENHUMA LISTA', itens: [] };
@@ -326,6 +380,7 @@ export default function Home() {
     const mercadosBipadosUnicos = Array.from(new Set(historicoCupons.map(c => c.mercado)));
     const listaFinalMercados = [];
 
+    // 1. Mercados lidos por cupom
     mercadosBipadosUnicos.forEach((nomeMercado, idx) => {
       const fator = 0.88 + ((idx % 4) * 0.05); 
       listaFinalMercados.push({
@@ -336,18 +391,28 @@ export default function Home() {
       });
     });
 
-    const padroes = [
-      { id: 'padrao-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
-      { id: 'padrao-2', nome: 'FORT ATACADISTA', fatorMultiplicador: 1.00, origem: 'Regional' },
-      { id: 'padrao-3', nome: 'CARREFOUR', fatorMultiplicador: 1.05, origem: 'Regional' },
-      { id: 'padrao-4', nome: 'PÃO DE AÇÚCAR', fatorMultiplicador: 1.12, origem: 'Regional' }
-    ];
+    // 2. Mercados da Geolocalização Real (se existirem)
+    if (mercadosReais.length > 0) {
+      mercadosReais.forEach(mr => {
+        if (!listaFinalMercados.some(m => m.nome === mr.nome)) {
+          listaFinalMercados.push(mr);
+        }
+      });
+    } else {
+      // 3. Caso não tenha ativado o GPS ou não tenha retornado nada, usa fallback regional
+      const padroes = [
+        { id: 'padrao-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
+        { id: 'padrao-2', nome: 'FORT ATACADISTA', fatorMultiplicador: 1.00, origem: 'Regional' },
+        { id: 'padrao-3', nome: 'CARREFOUR', fatorMultiplicador: 1.05, origem: 'Regional' },
+        { id: 'padrao-4', nome: 'PÃO DE AÇÚCAR', fatorMultiplicador: 1.12, origem: 'Regional' }
+      ];
 
-    padroes.forEach(p => {
-      if (!listaFinalMercados.some(m => m.nome === p.nome)) {
-        listaFinalMercados.push(p);
-      }
-    });
+      padroes.forEach(p => {
+        if (!listaFinalMercados.some(m => m.nome === p.nome)) {
+          listaFinalMercados.push(p);
+        }
+      });
+    }
 
     const mercadosComTotais = listaFinalMercados.map(m => {
       const total = listaAtualComparacao.itens ? listaAtualComparacao.itens.reduce((acc, item) => {
@@ -523,7 +588,7 @@ export default function Home() {
         <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
           <div className="max-w-5xl mx-auto space-y-6">
             
-            {/* CABEÇALHO COM AÇÕES DIRETA E ISOLADAS */}
+            {/* CABEÇALHO */}
             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border">
               <div>
                 <span className="text-xs font-bold text-gray-400 tracking-wider uppercase">Análise de Economia</span>
@@ -532,7 +597,7 @@ export default function Home() {
 
               <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                 
-                {/* BOTÃO BIPAR CUPOM - CHAMA O MODAL DIRETAMENTE */}
+                {/* BOTÃO BIPAR CUPOM */}
                 <button
                   type="button"
                   onClick={() => setShowQrModal(true)}
@@ -575,17 +640,22 @@ export default function Home() {
               <div className="flex flex-col md:flex-row justify-between md:items-center gap-3">
                 <div>
                   <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
-                    <span className="text-red-500">📍</span> Mercados da Região e Histórico
+                    <span className="text-red-500">📍</span> Mercados da Sua Região
                   </h2>
-                  <p className="text-xs text-gray-500">Comparação com base nos seus cupons lidos e estabelecimentos locais</p>
+                  <p className="text-xs text-gray-500">
+                    {usandoGeo 
+                      ? `Buscamos supermercados reais até 5km de você via OpenStreetMap` 
+                      : `Clique no botão ao lado para carregar automaticamente os supermercados reais do seu bairro`}
+                  </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={obterLocalizacao}
-                  className="border-2 border-blue-500 text-blue-600 font-bold px-4 py-2 rounded-full text-xs hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  onClick={obterLocalizacaoEBuscarMercadosReais}
+                  disabled={loadingGeo}
+                  className={`border-2 border-blue-500 ${loadingGeo ? 'bg-blue-100 text-blue-400' : 'text-blue-600 hover:bg-blue-50'} font-bold px-4 py-2 rounded-full text-xs transition-colors flex items-center justify-center gap-2`}
                 >
-                  <span>🌐</span> {usandoGeo ? 'Localização Ativada' : 'Usar Minha Localização'}
+                  <span>🌐</span> {loadingGeo ? 'Buscando no Mapa...' : usandoGeo ? 'Atualizar Mercados Próximos' : 'Usar Minha Localização Real'}
                 </button>
               </div>
             </div>
@@ -617,7 +687,7 @@ export default function Home() {
                         <h3 className={`font-extrabold text-base ${isMaisBarato ? 'text-emerald-900' : 'text-gray-800'}`}>
                           {mercado.nome}
                         </h3>
-                        <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded-md font-bold">
+                        <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md font-bold">
                           {mercado.origem}
                         </span>
                       </div>
@@ -895,7 +965,7 @@ export default function Home() {
       {/* RENDERIZAÇÃO DA TELA ATIVA */}
       {renderScreen()}
 
-      {/* MODAL QR CODE - RENDERIZADO NO NÍVEL RAIZ */}
+      {/* MODAL QR CODE */}
       {showQrModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-md space-y-4 shadow-2xl">
@@ -962,7 +1032,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL NOME FANTASIA - RENDERIZADO NO NÍVEL RAIZ */}
+      {/* MODAL NOME FANTASIA */}
       {showNomeFantasiaModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-md space-y-4 shadow-2xl">
