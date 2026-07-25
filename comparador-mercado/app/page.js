@@ -310,7 +310,7 @@ export default function Home() {
     setScreen('comparison');
   };
 
-  // BUSCA DE MERCADOS REAIS VIA OPENSTREETMAP (OVERPASS API CORRIGIDO E EXPANDIDO)
+  // BUSCA DE MERCADOS REAIS VIA OPENSTREETMAP (COM FALLBACK DE SERVIDOR)
   const obterLocalizacaoEBuscarMercadosReais = () => {
     if (!navigator.geolocation) {
       alert('Seu navegador não suporta geolocalização.');
@@ -324,18 +324,37 @@ export default function Home() {
         const { latitude, longitude } = position.coords;
 
         try {
-          // Query expandida para buscar nodes e ways (áreas) num raio de 10km cobrindo vários tipos de mercados
-          const query = `[out:json][timeout:15];(node(around:10000,${latitude},${longitude})["shop"~"supermarket|grocery|convenience|deli|general"];way(around:10000,${latitude},${longitude})["shop"~"supermarket|grocery|convenience|deli|general"];);out center 20;`;
-          const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+          // Query Overpass otimizada e limpa
+          const query = `[out:json][timeout:15];node(around:5000,${latitude},${longitude})["shop"~"supermarket|grocery|convenience|deli"];out 20;`;
           
-          if (!response.ok) throw new Error('Falha na consulta do mapa');
+          const endpoints = [
+            `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
+            `https://overpass.kumi.systems/api/interpreter?data=${encodeURIComponent(query)}`
+          ];
+
+          let response = null;
+          for (const url of endpoints) {
+            try {
+              const res = await fetch(url);
+              if (res.ok) {
+                response = res;
+                break;
+              }
+            } catch (e) {
+              console.warn("Falha no servidor Overpass, tentando endpoint alternativo...", e);
+            }
+          }
+
+          if (!response) {
+            throw new Error('Servidores de mapa indisponíveis no momento.');
+          }
 
           const data = await response.json();
           const lugares = data.elements || [];
 
           const nomesEncontrados = [];
           lugares.forEach(el => {
-            const nome = el.tags?.name || el.tags?.['brand'];
+            const nome = el.tags?.name || el.tags?.['brand'] || el.tags?.['operator'];
             if (nome) {
               const nomeUpper = nome.toUpperCase();
               if (!nomesEncontrados.includes(nomeUpper)) {
@@ -356,11 +375,11 @@ export default function Home() {
             setUsandoGeo(true);
             alert(`Sucesso! Encontramos ${novosMercadosReais.length} mercados reais próximos a você!`);
           } else {
-            alert('Localização obtida! Porém nenhum mercado com nome cadastrado foi localizado próximo.');
+            alert('Localização obtida! Porém nenhum mercado cadastrado foi localizado no raio de 5km.');
           }
         } catch (error) {
           console.error("Erro ao buscar no OpenStreetMap:", error);
-          alert('Não foi possível obter a lista de mercados no momento. Verifique a conexão.');
+          alert('Não foi possível obter a lista de mercados no momento. Verifique a conexão ou tente em instantes.');
         } finally {
           setLoadingGeo(false);
         }
@@ -369,7 +388,8 @@ export default function Home() {
         setLoadingGeo(false);
         console.error("Erro Geolocation:", error);
         alert('Não foi possível obter sua localização. Verifique as permissões de GPS no seu navegador.');
-      }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
@@ -390,7 +410,7 @@ export default function Home() {
       });
     });
 
-    // 2. Se a busca GPS já rodou, prioriza os mercados encontrados via GPS
+    // 2. Se a busca GPS já rodou, adiciona os mercados reais encontrados
     if (usandoGeo && mercadosReais.length > 0) {
       mercadosReais.forEach(mr => {
         if (!listaFinalMercados.some(m => m.nome === mr.nome)) {
@@ -398,7 +418,7 @@ export default function Home() {
         }
       });
     } else if (!usandoGeo) {
-      // 3. Fallback apenas se a geolocalização NÃO tiver sido ativada ainda
+      // 3. Usa os padrões regionais se o GPS não tiver sido acionado ainda
       const padroes = [
         { id: 'padrao-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
         { id: 'padrao-2', nome: 'FORT ATACADISTA', fatorMultiplicador: 1.00, origem: 'Regional' },
@@ -429,9 +449,8 @@ export default function Home() {
     return mercadosComTotais.sort((a, b) => a.totalNum - b.totalNum);
   };
 
-  // Renderizador principal das telas
+  // Renderizador das telas
   const renderScreen = () => {
-    // TELA DE LOGIN
     if (screen === 'login' && !isLogged) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
@@ -484,7 +503,6 @@ export default function Home() {
       );
     }
 
-    // TELA DE CADASTRO
     if (screen === 'register' && !isLogged) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
@@ -573,7 +591,6 @@ export default function Home() {
       );
     }
 
-    // TELA DE COMPARAÇÃO DE PREÇOS
     if (screen === 'comparison') {
       const mercadosComparacao = obterMercadosParaComparar();
 
@@ -761,7 +778,6 @@ export default function Home() {
       );
     }
 
-    // TELA DE DASHBOARD
     return (
       <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
         <div className="max-w-3xl mx-auto space-y-4">
