@@ -14,10 +14,14 @@ export default function Home() {
 
   // Persistence (LocalStorage) & Listas
   const [listas, setListas] = useState([]);
-  const [listaAtivaId, setListaAtivaId] = useState(null);
+  const [listasAbertas, setListasAbertas] = useState({}); // Controle de listas expandidas/recolhidas
   const [novaListaNome, setNovaListaNome] = useState('');
-  const [novoItemNome, setNovoItemNome] = useState('');
-  const [novoItemQtd, setNovoItemQtd] = useState(1);
+  
+  // Inputs de novos itens vinculados a cada lista: { [listaId]: { nome: '', qtd: 1 } }
+  const [inputsItens, setInputsItens] = useState({});
+
+  // Lista selecionada para comparar
+  const [listaParaCompararId, setListaParaCompararId] = useState(null);
 
   // Cupons lidos / Histórico
   const [historicoCupons, setHistoricoCupons] = useState([]);
@@ -30,7 +34,9 @@ export default function Home() {
 
   // Comparação & Geolocalização
   const [usandoGeo, setUsandoGeo] = useState(false);
-  const [mercadosSelecionados, setMercadosSelecionados] = useState(['ASSAÍ INTERLAGOS', 'FORT ATACADISTA NAÇÕES UNIDAS']);
+  
+  // Controle de cascata/expansão de itens na tela de comparação
+  const [mercadoExpandido, setMercadoExpandido] = useState(null); // 'assai' | 'fort' | null
 
   // Carregar dados salvos do LocalStorage ao iniciar
   useEffect(() => {
@@ -40,7 +46,10 @@ export default function Home() {
     if (listasSalvas) {
       const parsed = JSON.parse(listasSalvas);
       setListas(parsed);
-      if (parsed.length > 0) setListaAtivaId(parsed[0].id);
+      if (parsed.length > 0) {
+        setListasAbertas({ [parsed[0].id]: true });
+        setListaParaCompararId(parsed[0].id);
+      }
     } else {
       // Lista Padrão de Exemplo Inicial
       const inicial = [
@@ -56,7 +65,8 @@ export default function Home() {
         }
       ];
       setListas(inicial);
-      setListaAtivaId(1);
+      setListasAbertas({ 1: true });
+      setListaParaCompararId(1);
     }
 
     if (cuponsSalvos) {
@@ -158,38 +168,59 @@ export default function Home() {
     setScreen('login');
   };
 
+  // Alternar visualização/expansão de uma lista
+  const toggleListaAberta = (listaId) => {
+    setListasAbertas(prev => ({
+      ...prev,
+      [listaId]: !prev[listaId]
+    }));
+  };
+
   // Gestão de Listas
   const criarNovaLista = (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
 
+    const novaId = Date.now();
     const nova = {
-      id: Date.now(),
+      id: novaId,
       nome: novaListaNome.toUpperCase(),
       data: new Date().toLocaleDateString('pt-BR'),
       itens: []
     };
 
-    const atualizadas = [...listas, nova];
+    const atualizadas = [nova, ...listas];
     setListas(atualizadas);
-    setListaAtivaId(nova.id);
+    setListasAbertas(prev => ({ ...prev, [novaId]: true }));
     setNovaListaNome('');
   };
 
-  const adicionarItem = (e) => {
+  // Atualizar os inputs individuais de cada lista
+  const handleInputItemChange = (listaId, campo, valor) => {
+    setInputsItens(prev => ({
+      ...prev,
+      [listaId]: {
+        nome: campo === 'nome' ? valor : prev[listaId]?.nome || '',
+        qtd: campo === 'qtd' ? valor : prev[listaId]?.qtd || 1
+      }
+    }));
+  };
+
+  const adicionarItem = (e, listaId) => {
     e.preventDefault();
-    if (!novoItemNome.trim()) return;
+    const input = inputsItens[listaId];
+    if (!input || !input.nome || !input.nome.trim()) return;
 
     setListas(listas.map(l => {
-      if (l.id === listaAtivaId) {
+      if (l.id === listaId) {
         return {
           ...l,
           itens: [
             ...l.itens,
             {
               id: Date.now(),
-              nome: novoItemNome.toUpperCase(),
-              qtd: novoItemQtd,
+              nome: input.nome.toUpperCase(),
+              qtd: input.qtd || 1,
               un: 'UN',
               marcado: false,
               precoEstimado: (Math.random() * 15 + 3).toFixed(2)
@@ -200,8 +231,10 @@ export default function Home() {
       return l;
     }));
 
-    setNovoItemNome('');
-    setNovoItemQtd(1);
+    setInputsItens(prev => ({
+      ...prev,
+      [listaId]: { nome: '', qtd: 1 }
+    }));
   };
 
   const removerItem = (listaId, itemId) => {
@@ -232,7 +265,12 @@ export default function Home() {
     }
     const filtradas = listas.filter(l => l.id !== id);
     setListas(filtradas);
-    setListaAtivaId(filtradas[0].id);
+  };
+
+  // Abrir Tela de Comparação para uma lista específica
+  const abrirComparacao = (listaId) => {
+    setListaParaCompararId(listaId);
+    setScreen('comparison');
   };
 
   // Geolocalização
@@ -250,12 +288,12 @@ export default function Home() {
     }
   };
 
-  const listaAtual = listas.find(l => l.id === listaAtivaId) || listas[0] || { nome: '', itens: [] };
+  const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: '', itens: [] };
 
   // Cálculo de Preços dos Mercados para Comparação
   const calcularTotalMercado = (fatorMultiplicador) => {
-    if (!listaAtual || !listaAtual.itens) return '0.00';
-    const total = listaAtual.itens.reduce((acc, item) => {
+    if (!listaAtualComparacao || !listaAtualComparacao.itens) return '0.00';
+    const total = listaAtualComparacao.itens.reduce((acc, item) => {
       const precoBase = Number(item.precoEstimado) || 10;
       return acc + (precoBase * item.qtd * fatorMultiplicador);
     }, 0);
@@ -419,7 +457,7 @@ export default function Home() {
   // TELA DE COMPARAÇÃO DE PREÇOS
   // -------------------------------------------------------------
   if (screen === 'comparison') {
-    const totalAssai = calcularTotalMercado(0.92); // 8% mais barato em média
+    const totalAssai = calcularTotalMercado(0.92); // 8% mais barato
     const totalFort = calcularTotalMercado(1.0);
 
     return (
@@ -428,18 +466,18 @@ export default function Home() {
           <header className="flex justify-between items-center">
             <div>
               <span className="text-xs font-bold text-gray-400 tracking-wider uppercase">Análise de Economia</span>
-              <h1 className="text-xl sm:text-2xl font-black text-gray-800">{listaAtual.nome}</h1>
+              <h1 className="text-xl sm:text-2xl font-black text-gray-800">{listaAtualComparacao.nome}</h1>
             </div>
             <button onClick={() => setScreen('dashboard')} className="text-xs sm:text-sm font-bold text-[#0066a1] hover:underline">
-              ← Voltar para Minha Lista
+              ← Voltar para Minhas Listas
             </button>
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-semibold">Produtos na Lista</p>
-                <p className="text-2xl font-black text-gray-800">{listaAtual.itens?.length || 0}</p>
+                <p className="text-xs text-gray-500 font-semibold">Produtos nesta Lista</p>
+                <p className="text-2xl font-black text-gray-800">{listaAtualComparacao.itens?.length || 0}</p>
               </div>
               <span className="text-3xl">🧺</span>
             </div>
@@ -459,7 +497,7 @@ export default function Home() {
                 <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                   <span className="text-red-500">📍</span> Mercados da Região
                 </h2>
-                <p className="text-xs text-gray-500">Compara os preços da sua lista nos estabelecimentos</p>
+                <p className="text-xs text-gray-500">Clique no card do mercado para ver a cascata dos itens comparados</p>
               </div>
 
               <button
@@ -471,22 +509,86 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Comparativo Ativo de Valores */}
+          {/* Cards dos Mercados com Cascata dos Itens Comparados */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-emerald-50 border-2 border-emerald-500 p-5 rounded-2xl space-y-2 relative">
-              <span className="absolute top-3 right-3 bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                🏆 Mais Barato
-              </span>
-              <h3 className="font-extrabold text-emerald-900 text-base">ASSAÍ ATACADISTA</h3>
-              <p className="text-xs text-emerald-700">Estimativa para toda a sua lista:</p>
-              <p className="text-3xl font-black text-emerald-600">R$ {totalAssai}</p>
+            
+            {/* CARD ASSAÍ */}
+            <div className="bg-emerald-50 border-2 border-emerald-500 rounded-2xl overflow-hidden shadow-sm">
+              <div 
+                onClick={() => setMercadoExpandido(mercadoExpandido === 'assai' ? null : 'assai')}
+                className="p-5 cursor-pointer relative hover:bg-emerald-100/50 transition-colors"
+              >
+                <span className="absolute top-3 right-3 bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                  🏆 Mais Barato
+                </span>
+                <h3 className="font-extrabold text-emerald-900 text-base">ASSAÍ ATACADISTA</h3>
+                <p className="text-xs text-emerald-700">Estimativa total da lista:</p>
+                <div className="flex justify-between items-end mt-1">
+                  <p className="text-3xl font-black text-emerald-600">R$ {totalAssai}</p>
+                  <span className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                    {mercadoExpandido === 'assai' ? 'Recolher Cascata ▲' : 'Ver Itens em Cascata ▼'}
+                  </span>
+                </div>
+              </div>
+
+              {/* CASCATA DE ITENS - ASSAÍ */}
+              {mercadoExpandido === 'assai' && (
+                <div className="bg-white border-t border-emerald-200 p-4 space-y-2 divide-y">
+                  <p className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider mb-2">Detalhamento dos Preços:</p>
+                  {listaAtualComparacao.itens.map(item => {
+                    const precoUnit = ((Number(item.precoEstimado) || 10) * 0.92).toFixed(2);
+                    const subtotal = (precoUnit * item.qtd).toFixed(2);
+                    return (
+                      <div key={item.id} className="pt-2 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-gray-800">{item.nome}</p>
+                          <p className="text-[10px] text-gray-400">{item.qtd} UN x R$ {precoUnit}</p>
+                        </div>
+                        <span className="font-bold text-emerald-700">R$ {subtotal}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            <div className="bg-white border p-5 rounded-2xl space-y-2">
-              <h3 className="font-extrabold text-gray-800 text-base">FORT ATACADISTA</h3>
-              <p className="text-xs text-gray-500">Estimativa para toda a sua lista:</p>
-              <p className="text-3xl font-black text-gray-700">R$ {totalFort}</p>
+            {/* CARD FORT */}
+            <div className="bg-white border-2 border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              <div 
+                onClick={() => setMercadoExpandido(mercadoExpandido === 'fort' ? null : 'fort')}
+                className="p-5 cursor-pointer hover:bg-gray-50 transition-colors"
+              >
+                <h3 className="font-extrabold text-gray-800 text-base">FORT ATACADISTA</h3>
+                <p className="text-xs text-gray-500">Estimativa total da lista:</p>
+                <div className="flex justify-between items-end mt-1">
+                  <p className="text-3xl font-black text-gray-700">R$ {totalFort}</p>
+                  <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                    {mercadoExpandido === 'fort' ? 'Recolher Cascata ▲' : 'Ver Itens em Cascata ▼'}
+                  </span>
+                </div>
+              </div>
+
+              {/* CASCATA DE ITENS - FORT */}
+              {mercadoExpandido === 'fort' && (
+                <div className="bg-gray-50 border-t p-4 space-y-2 divide-y">
+                  <p className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wider mb-2">Detalhamento dos Preços:</p>
+                  {listaAtualComparacao.itens.map(item => {
+                    const precoUnit = (Number(item.precoEstimado) || 10).toFixed(2);
+                    const subtotal = (precoUnit * item.qtd).toFixed(2);
+                    return (
+                      <div key={item.id} className="pt-2 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-gray-800">{item.nome}</p>
+                          <p className="text-[10px] text-gray-400">{item.qtd} UN x R$ {precoUnit}</p>
+                        </div>
+                        <span className="font-bold text-gray-700">R$ {subtotal}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+
           </div>
 
           {/* Histórico de Cupons Bipados */}
@@ -517,7 +619,7 @@ export default function Home() {
   }
 
   // -------------------------------------------------------------
-  // TELA DE DASHBOARD / LISTAS PRINCIPAIS
+  // TELA DE DASHBOARD / LISTAS EMPILHADAS (UMA ABAIXO DA OUTRA)
   // -------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
@@ -541,7 +643,7 @@ export default function Home() {
           <form onSubmit={criarNovaLista} className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
-              placeholder="EX: CHURRASCO, SE MANA, LIMPEZA..."
+              placeholder="EX: CHURRASCO, SEMANA, LIMPEZA..."
               value={novaListaNome}
               onChange={e => setNovaListaNome(e.target.value)}
               className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white focus:outline-none focus:border-blue-500"
@@ -551,116 +653,137 @@ export default function Home() {
               + Criar Lista
             </button>
           </form>
-
-          {/* Selecionar Lista Ativa */}
-          {listas.length > 1 && (
-            <div className="flex items-center gap-2 pt-2 border-t overflow-x-auto">
-              <span className="text-[11px] font-bold text-gray-400 uppercase whitespace-nowrap">Suas Listas:</span>
-              {listas.map(l => (
-                <button
-                  key={l.id}
-                  onClick={() => setListaAtivaId(l.id)}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
-                    l.id === listaAtivaId ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {l.nome}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
-        {/* Card Principal da Lista */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-4 sm:p-6 border-b flex flex-col md:flex-row justify-between md:items-center gap-4">
-            <div>
-              <h2 className="text-base sm:text-lg font-black text-gray-800">{listaAtual.nome}</h2>
-              <p className="text-[11px] text-gray-400">Criada em: {listaAtual.data}</p>
-            </div>
+        {/* LISTAGEM EMPILHADA DE TODAS AS LISTAS */}
+        <div className="space-y-4">
+          <h2 className="text-xs font-extrabold text-gray-400 tracking-wider uppercase px-1">
+            Suas Listas ({listas.length})
+          </h2>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setScreen('comparison')}
-                className="flex-1 sm:flex-none bg-[#0d824d] hover:bg-[#0a673d] text-white text-xs font-bold px-3.5 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
-              >
-                📊 Comparar
-              </button>
+          {listas.map((lista) => {
+            const estaAberta = !!listasAbertas[lista.id];
+            const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
 
-              <button
-                onClick={() => setShowQrModal(true)}
-                className="flex-1 sm:flex-none border border-blue-500 text-blue-600 hover:bg-blue-50 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5"
-              >
-                📱 Bipar Cupom
-              </button>
-
-              <button
-                onClick={() => deletarLista(listaAtual.id)}
-                className="border border-red-200 text-red-500 hover:bg-red-50 p-2.5 rounded-xl transition-colors text-xs"
-                title="Excluir Lista"
-              >
-                🗑️
-              </button>
-            </div>
-          </div>
-
-          {/* Form Inserir Item com Responsividade Mobile Perfeita */}
-          <form onSubmit={adicionarItem} className="p-3 sm:p-4 bg-gray-50 border-b flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              placeholder="NOME DO ITEM (EX: ARROZ)..."
-              value={novoItemNome}
-              onChange={e => setNovoItemNome(e.target.value)}
-              className="flex-1 px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white focus:outline-none focus:border-blue-500"
-              required
-            />
-            <div className="flex gap-2">
-              <input
-                type="number"
-                min="1"
-                value={novoItemQtd}
-                onChange={e => setNovoItemQtd(Number(e.target.value))}
-                className="w-20 px-3 py-2.5 border border-gray-300 rounded-xl text-xs text-center font-bold text-gray-900 bg-white focus:outline-none"
-              />
-              <button type="submit" className="flex-1 sm:flex-none bg-[#1877f2] hover:bg-[#1162cd] text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap">
-                + Adicionar
-              </button>
-            </div>
-          </form>
-
-          {/* Listagem dos Itens */}
-          <div className="divide-y">
-            {(!listaAtual.itens || listaAtual.itens.length === 0) ? (
-              <div className="p-8 text-center text-xs text-gray-400">
-                Sua lista está vazia. Adicione um item no campo acima!
-              </div>
-            ) : (
-              listaAtual.itens.map(item => (
-                <div key={item.id} className="p-3.5 sm:p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+            return (
+              <div key={lista.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all">
+                
+                {/* Cabeçalho da Lista (Clicável para expandir/recolher) */}
+                <div 
+                  onClick={() => toggleListaAberta(lista.id)}
+                  className="p-4 sm:p-5 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                >
                   <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={item.marcado}
-                      onChange={() => toggleCheck(listaAtual.id, item.id)}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-0 cursor-pointer"
-                    />
-                    <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                      {item.nome}
+                    <span className="text-lg text-blue-600 font-bold">
+                      {estaAberta ? '📂' : '📁'}
                     </span>
+                    <div>
+                      <h3 className="text-sm sm:text-base font-extrabold text-gray-800">{lista.nome}</h3>
+                      <p className="text-[11px] text-gray-400">{lista.itens.length} itens • Criada em {lista.data}</p>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded-md">
-                      {item.qtd} UN
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                      {estaAberta ? 'Recolher ▲' : 'Abrir Itens ▼'}
                     </span>
-                    <button onClick={() => removerItem(listaAtual.id, item.id)} className="text-red-500 text-xs font-bold hover:underline px-1">
-                      ✕
-                    </button>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+
+                {/* Conteúdo Expandido da Lista */}
+                {estaAberta && (
+                  <div className="border-t border-gray-100 bg-white">
+                    
+                    {/* Barra de Ações da Lista */}
+                    <div className="p-3 bg-gray-50/80 border-b flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={() => abrirComparacao(lista.id)}
+                          className="flex-1 sm:flex-none bg-[#0d824d] hover:bg-[#0a673d] text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          📊 Comparar Lista
+                        </button>
+
+                        <button
+                          onClick={() => setShowQrModal(true)}
+                          className="flex-1 sm:flex-none border border-blue-500 text-blue-600 hover:bg-blue-50 text-xs font-bold px-3 py-2 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          📱 Bipar Cupom
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => deletarLista(lista.id)}
+                        className="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-colors text-xs font-bold"
+                        title="Excluir Lista"
+                      >
+                        🗑️ Excluir Lista
+                      </button>
+                    </div>
+
+                    {/* Form Inserir Item nesta Lista */}
+                    <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-3 sm:p-4 bg-gray-50 border-b flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        placeholder="NOME DO ITEM (EX: LEITE)..."
+                        value={inputAtual.nome}
+                        onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
+                        className="flex-1 px-3.5 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 placeholder-gray-400 uppercase bg-white focus:outline-none focus:border-blue-500"
+                        required
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          value={inputAtual.qtd}
+                          onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-xl text-xs text-center font-bold text-gray-900 bg-white focus:outline-none"
+                        />
+                        <button type="submit" className="flex-1 sm:flex-none bg-[#1877f2] hover:bg-[#1162cd] text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap">
+                          + Adicionar
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Listagem dos Itens da Lista */}
+                    <div className="divide-y">
+                      {(!lista.itens || lista.itens.length === 0) ? (
+                        <div className="p-6 text-center text-xs text-gray-400 italic">
+                          Esta lista está vazia. Adicione um item no campo acima!
+                        </div>
+                      ) : (
+                        lista.itens.map(item => (
+                          <div key={item.id} className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={item.marcado}
+                                onChange={() => toggleCheck(lista.id, item.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-0 cursor-pointer"
+                              />
+                              <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                {item.nome}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-md">
+                                {item.qtd} UN
+                              </span>
+                              <button onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold hover:underline px-1">
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Modal Bipar QR Code */}
