@@ -286,6 +286,38 @@ export default function Home() {
     setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
   };
 
+  // --- NOVAS FUNÇÕES: EDICIONALMENTE EDITAR QUANTIDADE ---
+  const alterarQuantidade = (listaId, itemId, delta) => {
+    setListas(listas.map(l => {
+      if (l.id === listaId) {
+        return {
+          ...l,
+          itens: l.itens.map(item => {
+            if (item.id === itemId) {
+              const novaQtd = Math.max(1, item.qtd + delta);
+              return { ...item, qtd: novaQtd };
+            }
+            return item;
+          })
+        };
+      }
+      return l;
+    }));
+  };
+
+  const atualizarQuantidadeDireta = (listaId, itemId, valorInput) => {
+    const qtdNum = Math.max(1, parseInt(valorInput) || 1);
+    setListas(listas.map(l => {
+      if (l.id === listaId) {
+        return {
+          ...l,
+          itens: l.itens.map(item => item.id === itemId ? { ...item, qtd: qtdNum } : item)
+        };
+      }
+      return l;
+    }));
+  };
+
   const removerItem = (listaId, itemId) => {
     setListas(listas.map(l => l.id === listaId ? { ...l, itens: l.itens.filter(i => i.id !== itemId) } : l));
   };
@@ -310,7 +342,7 @@ export default function Home() {
     setScreen('comparison');
   };
 
-  // BUSCA DE MERCADOS COM FALLBACK RESILIENTE (NUNCA EXIBE ERRO PARA O USUÁRIO)
+  // BUSCA DE MERCADOS COM FALLBACK RESILIENTE
   const obterLocalizacaoEBuscarMercadosReais = () => {
     if (!navigator.geolocation) {
       alert('Seu navegador não suporta geolocalização.');
@@ -378,11 +410,9 @@ export default function Home() {
             }
           }
           
-          // Se a busca da API falhar ou não trouxer resultados, aciona o fallback instantâneo
           aplicarFallbackMercados();
 
         } catch (error) {
-          // Erro silencioso da API -> Ativa o Fallback sem assustar o usuário com alertas
           console.warn("API de mapas indisponível, usando fallback de geolocalização:", error);
           aplicarFallbackMercados();
         }
@@ -913,32 +943,64 @@ export default function Home() {
                             lista.itens.map(item => {
                               const marcaCorreta = item.marca || obterMarcaParaItem(item.nome);
                               return (
-                                <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50">
-                                  <div className="flex items-center gap-2.5">
+                                <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
+                                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                     <input
                                       type="checkbox"
                                       checked={item.marcado}
                                       onChange={() => toggleCheck(lista.id, item.id)}
-                                      className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600"
+                                      className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 flex-shrink-0"
                                     />
-                                    <div className="flex items-center gap-1.5">
-                                      <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                      <span className={`text-xs font-bold truncate ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
                                         {item.nome}
                                       </span>
-                                      <span className="text-[10px] bg-gray-100 text-gray-600 font-bold px-1.5 py-0.5 rounded">
+                                      <span className="text-[10px] bg-gray-100 text-gray-600 font-bold px-1.5 py-0.5 rounded flex-shrink-0">
                                         🏷️ {marcaCorreta}
                                       </span>
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
-                                      {item.qtd} UN
-                                    </span>
-                                    <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">
+                                  {/* --- SEÇÃO DE EDITAR QUANTIDADE (+ / - / Campo) --- */}
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white shadow-sm">
+                                      <button
+                                        type="button"
+                                        onClick={() => alterarQuantidade(lista.id, item.id, -1)}
+                                        className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-extrabold text-xs transition-colors select-none"
+                                        title="Diminuir quantidade"
+                                      >
+                                        -
+                                      </button>
+                                      
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={item.qtd}
+                                        onChange={(e) => atualizarQuantidadeDireta(lista.id, item.id, e.target.value)}
+                                        className="w-10 text-center text-xs font-bold text-gray-800 bg-transparent focus:outline-none p-0"
+                                      />
+
+                                      <button
+                                        type="button"
+                                        onClick={() => alterarQuantidade(lista.id, item.id, 1)}
+                                        className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-extrabold text-xs transition-colors select-none"
+                                        title="Aumentar quantidade"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+
+                                    <button 
+                                      type="button" 
+                                      onClick={() => removerItem(lista.id, item.id)} 
+                                      className="text-red-500 hover:text-red-700 text-xs font-bold px-1 py-0.5 rounded hover:bg-red-50 transition-colors"
+                                      title="Remover item"
+                                    >
                                       ✕
                                     </button>
                                   </div>
+
                                 </div>
                               );
                             })
