@@ -70,7 +70,6 @@ export default function Home() {
         setListaParaCompararId(parsed[0].id);
       }
     } else {
-      // Lista Principal Genérica Inicial para todo novo usuário
       const inicial = [
         {
           id: 1,
@@ -151,7 +150,8 @@ export default function Home() {
     }
   };
 
-  const handleCloseModal = () => {
+  const handleCloseModal = (e) => {
+    if (e) e.stopPropagation();
     stopCamera();
     setShowQrModal(false);
     setQrUrl('');
@@ -290,7 +290,6 @@ export default function Home() {
     setListas(listas.map(l => l.id === listaId ? { ...l, itens: l.itens.map(i => i.id === itemId ? { ...i, marcado: !i.marcado } : i) } : l));
   };
 
-  // PERMITE EXCLUIR QUALQUER LISTA (INCLUSIVE A PRINCIPAL)
   const deletarLista = (id) => {
     const listaAlvo = listas.find(l => l.id === id);
     const mensagem = listaAlvo?.isPrincipal 
@@ -385,7 +384,7 @@ export default function Home() {
               <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
               <input
                 type="text"
-                placeholder="Digite seu usuário (ex: joao)"
+                placeholder="Digite seu usuário"
                 value={usuario}
                 onChange={e => setUsuario(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:border-[#0d824d]"
@@ -513,7 +512,7 @@ export default function Home() {
   }
 
   // -------------------------------------------------------------
-  // TELA DE COMPARAÇÃO DE PREÇOS
+  // TELA DE COMPARAÇÃO DE PREÇOS (CORRIGIDO BOTÃO BIPAR CUPOM E VOLTAR)
   // -------------------------------------------------------------
   if (screen === 'comparison') {
     const mercadosComparacao = obterMercadosParaComparar();
@@ -521,21 +520,35 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
         <div className="max-w-5xl mx-auto space-y-6">
+          
+          {/* CABEÇALHO CORRIGIDO DE AÇÕES */}
           <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border">
             <div>
               <span className="text-xs font-bold text-gray-400 tracking-wider uppercase">Análise de Economia</span>
               <h1 className="text-xl sm:text-2xl font-black text-gray-800">{listaAtualComparacao.nome}</h1>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+            {/* Ações isoladas corretamente para evitar conflitos de clique */}
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
               <button
-                onClick={() => setShowQrModal(true)}
-                className="bg-[#1877f2] hover:bg-[#1162cd] text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-sm transition-colors"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowQrModal(true);
+                }}
+                className="bg-[#1877f2] hover:bg-[#1162cd] text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
               >
                 <span>📱</span> Bipar Cupom
               </button>
 
-              <button onClick={() => setScreen('dashboard')} className="text-xs font-bold text-[#0066a1] hover:underline px-2">
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setScreen('dashboard');
+                }} 
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+              >
                 ← Voltar
               </button>
             </div>
@@ -569,6 +582,7 @@ export default function Home() {
               </div>
 
               <button
+                type="button"
                 onClick={obterLocalizacao}
                 className="border-2 border-blue-500 text-blue-600 font-bold px-4 py-2 rounded-full text-xs hover:bg-blue-50 transition-colors flex items-center gap-2"
               >
@@ -676,6 +690,7 @@ export default function Home() {
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => excluirCupom(cupom.id)}
                       className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg text-xs font-bold transition-colors"
                       title="Excluir Cupom"
@@ -785,6 +800,7 @@ export default function Home() {
                     <div className="border-t border-gray-100 bg-white">
                       <div className="p-2.5 bg-gray-50/80 border-b flex items-center justify-between gap-2">
                         <button
+                          type="button"
                           onClick={() => abrirComparacao(lista.id)}
                           className="bg-[#0d824d] hover:bg-[#0a673d] text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors shadow-sm"
                         >
@@ -792,6 +808,7 @@ export default function Home() {
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => deletarLista(lista.id)}
                           className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg text-xs font-bold"
                         >
@@ -851,7 +868,7 @@ export default function Home() {
                                   <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
                                     {item.qtd} UN
                                   </span>
-                                  <button onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">
+                                  <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">
                                     ✕
                                   </button>
                                 </div>
@@ -877,12 +894,13 @@ export default function Home() {
                 <h3 className="text-sm sm:text-base font-bold text-gray-800 flex items-center gap-2">
                   📱 Bipar QR Code do Cupom
                 </h3>
-                <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
+                <button type="button" onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
               </div>
 
               <div className="space-y-3">
                 {!cameraActive ? (
                   <button
+                    type="button"
                     onClick={() => setCameraActive(true)}
                     className="w-full bg-[#1877f2] text-white font-bold py-3 rounded-xl text-xs shadow-sm"
                   >
@@ -892,6 +910,7 @@ export default function Home() {
                   <div className="space-y-2">
                     <div id="reader" className="w-full overflow-hidden rounded-xl border-2 border-blue-500 bg-black"></div>
                     <button
+                      type="button"
                       onClick={stopCamera}
                       className="w-full bg-red-100 text-red-600 font-bold py-2 rounded-xl text-xs"
                     >
@@ -916,10 +935,11 @@ export default function Home() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button onClick={handleCloseModal} className="px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-100">
+                <button type="button" onClick={handleCloseModal} className="px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-100">
                   Cancelar
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     if (!qrUrl) return alert('Por favor, leia o QR Code ou cole a URL.');
                     prepararCupomParaNome(qrUrl);
