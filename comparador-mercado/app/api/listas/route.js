@@ -28,7 +28,7 @@ export async function GET(request) {
     const listasFormatadas = listasBD.map(lista => ({
       id: lista.id,
       nome: lista.nome,
-      isPrincipal: false,
+      isPrincipal: lista.nome === 'LISTA DE COMPRAS PADRÃO',
       itens: lista.itens.map(item => ({
         id: item.id,
         nome: item.produtoNome.toUpperCase(),
@@ -43,7 +43,7 @@ export async function GET(request) {
     return NextResponse.json(listasFormatadas);
   } catch (error) {
     console.error('Erro no GET /api/listas:', error);
-    return NextResponse.json([], { status: 200 }); // Retorna array vazio em caso de erro para não travar o frontend
+    return NextResponse.json([], { status: 200 });
   }
 }
 
@@ -69,7 +69,7 @@ export async function POST(request) {
     return NextResponse.json({
       id: novaLista.id,
       nome: novaLista.nome,
-      isPrincipal: false,
+      isPrincipal: novaLista.nome === 'LISTA DE COMPRAS PADRÃO',
       itens: []
     }, { status: 201 });
   } catch (error) {
@@ -82,7 +82,6 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    // Suporta tanto 'acao' quanto 'ação'
     const acaoNorm = body.acao || body.ação;
 
     // Ação: Adicionar Item a uma Lista

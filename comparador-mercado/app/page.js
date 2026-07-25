@@ -56,7 +56,48 @@ export default function Home() {
     return 'MARCA PADRÃO';
   };
 
-  // --- CARREGAR DADOS DO BANCO NEON COM FALLBACK SEGURO ---
+  // Helper para criar a Lista Padrão no banco
+  const criarListaPadraoNoBanco = async () => {
+    try {
+      const resCriar = await fetch('/api/listas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: 'LISTA DE COMPRAS PADRÃO' })
+      });
+
+      if (resCriar.ok) {
+        const novaLista = await resCriar.json();
+        const itensPadrao = [
+          { id: Date.now() + 1, nome: 'ARROZ 5KG', qtd: 1, precoEstimado: '25.90', marca: 'CAMIL', marcado: false },
+          { id: Date.now() + 2, nome: 'FEIJAO CARIOCA 1KG', qtd: 2, precoEstimado: '7.50', marca: 'KICALDO', marcado: false },
+          { id: Date.now() + 3, nome: 'LEITE INTEGRAL 1L', qtd: 4, precoEstimado: '4.80', marca: 'NINHO', marcado: false },
+          { id: Date.now() + 4, nome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: '16.90', marca: 'PILÃO', marcado: false }
+        ];
+
+        for (const item of itensPadrao) {
+          await fetch('/api/listas', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              acao: 'ADICIONAR_ITEM',
+              listaId: novaLista.id,
+              nome: item.nome,
+              qtd: item.qtd,
+              precoEstimado: item.precoEstimado,
+              marca: item.marca
+            })
+          }).catch(err => console.warn('Aviso ao persistir item inicial:', err));
+        }
+
+        return { ...novaLista, itens: itensPadrao };
+      }
+    } catch (err) {
+      console.error('Erro ao gerar lista padrão no banco:', err);
+    }
+    return null;
+  };
+
+  // --- CARREGAR DADOS GARANTINDO A PRESENÇA DA LISTA PADRÃO ---
   const carregarListasDoBanco = async () => {
     try {
       const res = await fetch('/api/listas');
@@ -64,57 +105,26 @@ export default function Home() {
       if (res.ok) {
         let dados = await res.json();
         
-        // Se o banco estiver vazio (ou undefined), cria a Lista Padrão de Exemplo
-        if (!dados || dados.length === 0) {
-          const resCriar = await fetch('/api/listas', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: 'LISTA DE COMPRAS PADRÃO' })
-          });
+        // Procura se a LISTA DE COMPRAS PADRÃO já existe
+        let temPadrao = dados && dados.some(l => l.nome === 'LISTA DE COMPRAS PADRÃO');
 
-          if (resCriar.ok) {
-            const novaLista = await resCriar.json();
-            
-            const itensPadrao = [
-              { id: Date.now() + 1, nome: 'ARROZ 5KG', qtd: 1, precoEstimado: '25.90', marca: 'CAMIL', marcado: false },
-              { id: Date.now() + 2, nome: 'FEIJAO CARIOCA 1KG', qtd: 2, precoEstimado: '7.50', marca: 'KICALDO', marcado: false },
-              { id: Date.now() + 3, nome: 'LEITE INTEGRAL 1L', qtd: 4, precoEstimado: '4.80', marca: 'NINHO', marcado: false },
-              { id: Date.now() + 4, nome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: '16.90', marca: 'PILÃO', marcado: false }
-            ];
-
-            const listaMontada = { ...novaLista, itens: itensPadrao };
-            setListas([listaMontada]);
-            setListasAbertas({ [novaLista.id]: true });
-            setListaParaCompararId(novaLista.id);
-
-            for (const item of itensPadrao) {
-              await fetch('/api/listas', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  acao: 'ADICIONAR_ITEM',
-                  listaId: novaLista.id,
-                  nome: item.nome,
-                  qtd: item.qtd,
-                  precoEstimado: item.precoEstimado,
-                  marca: item.marca
-                })
-              }).catch(err => console.warn('Aviso ao persistir item inicial:', err));
-            }
-            return;
+        if (!temPadrao) {
+          const listaPadraoCriada = await criarListaPadraoNoBanco();
+          if (listaPadraoCriada) {
+            dados = [listaPadraoCriada, ...(dados || [])];
           }
         }
 
         setListas(dados);
         if (dados && dados.length > 0) {
-          setListasAbertas({ [dados[0].id]: true });
+          setListasAbertas(prev => ({ ...prev, [dados[0].id]: true }));
           setListaParaCompararId(dados[0].id);
         }
       } else {
         throw new Error('Falha ao obter listas');
       }
     } catch (error) {
-      console.error('Erro ao buscar listas do servidor, aplicando lista padrão local:', error);
+      console.error('Erro ao buscar listas do servidor, aplicando fallback com Lista Padrão:', error);
       
       const listaFallback = [{
         id: 'fallback-1',
