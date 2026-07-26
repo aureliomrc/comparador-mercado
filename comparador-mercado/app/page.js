@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 export default function Home() {
-  const [screen, setScreen] = useState('login'); // 'login', 'register', 'dashboard', 'comparison'
+  const [screen, setScreen] = useState('login');
   const [isLogged, setIsLogged] = useState(false);
   const [loadingListas, setLoadingListas] = useState(false);
 
@@ -17,218 +17,78 @@ export default function Home() {
   const [listas, setListas] = useState([]);
   const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
-  
-  // Inputs de novos itens vinculados a cada lista
   const [inputsItens, setInputsItens] = useState({});
 
-  // Lista selecionada para comparar
+  // Comparação
   const [listaParaCompararId, setListaParaCompararId] = useState(null);
-
-  // Cupons lidos / Histórico
   const [historicoCupons, setHistoricoCupons] = useState([]);
 
-  // Cupom / QR Code / Câmera
+  // Modais
   const [showQrModal, setShowQrModal] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [qrUrl, setQrUrl] = useState('');
   const html5QrCodeRef = useRef(null);
 
-  // Modal Nome Fantasia Mercado
   const [showNomeFantasiaModal, setShowNomeFantasiaModal] = useState(false);
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [cupomPendente, setCupomPendente] = useState(null);
 
-  // Comparação e Geolocalização
   const [usandoGeo, setUsandoGeo] = useState(false);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState([]);
   const [mercadoExpandido, setMercadoExpandido] = useState(null);
 
-  // Helper de Marca
   const obterMarcaParaItem = (nomeItem) => {
     const itemUpper = (nomeItem || '').toUpperCase();
     if (itemUpper.includes('ARROZ')) return 'CAMIL';
     if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
     if (itemUpper.includes('LEITE')) return 'NINHO';
     if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
-    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
-    if (itemUpper.includes('ÓLEO') || itemUpper.includes('OLEO')) return 'LIZA';
-    if (itemUpper.includes('MACARRÃO') || itemUpper.includes('MACARRAO')) return 'BARILLA';
     return 'MARCA PADRÃO';
   };
 
-  // --- CARREGAR DADOS DIRETAMENTE DO BANCO NEON ---
   const carregarListasDoBanco = async () => {
     setLoadingListas(true);
     try {
       const res = await fetch('/api/listas', { cache: 'no-store' });
-      
       if (res.ok) {
         const dados = await res.json();
         setListas(dados);
-
         if (dados && dados.length > 0) {
-          // Deixa a primeira lista aberta automaticamente
           setListasAbertas(prev => ({ ...prev, [dados[0].id]: true }));
           setListaParaCompararId(dados[0].id);
         }
-      } else {
-        alert('Ocorreu um erro ao buscar dados do banco de dados.');
       }
     } catch (error) {
-      console.error('Erro ao buscar listas do servidor:', error);
-      alert('Falha na comunicação com o banco de dados.');
+      console.error('Erro ao conectar com o banco:', error);
     } finally {
       setLoadingListas(false);
     }
   };
 
-  const carregarCuponsDoUsuario = (user) => {
-    const keyCupons = `ta_quanto_cupons_${user.toLowerCase()}`;
-    const cuponsSalvos = localStorage.getItem(keyCupons);
-    if (cuponsSalvos) {
-      setHistoricoCupons(JSON.parse(cuponsSalvos));
-    } else {
-      setHistoricoCupons([]);
-    }
-  };
-
-  useEffect(() => {
-    if (isLogged && usuario) {
-      const keyCupons = `ta_quanto_cupons_${usuario.toLowerCase()}`;
-      localStorage.setItem(keyCupons, JSON.stringify(historicoCupons));
-    }
-  }, [historicoCupons, isLogged, usuario]);
-
-  // Câmera / Scanner
-  useEffect(() => {
-    let scanner = null;
-
-    if (showQrModal && cameraActive) {
-      import('html5-qrcode').then(({ Html5Qrcode }) => {
-        scanner = new Html5Qrcode("reader");
-        html5QrCodeRef.current = scanner;
-
-        scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 220, height: 220 } },
-          (decodedText) => {
-            setQrUrl(decodedText);
-            stopCamera();
-            prepararCupomParaNome(decodedText);
-          },
-          () => {}
-        ).catch(err => {
-          console.error("Erro ao abrir câmera:", err);
-          setCameraActive(false);
-        });
-      }).catch(err => console.error(err));
-    }
-
-    return () => {
-      stopCamera();
-    };
-  }, [showQrModal, cameraActive]);
-
-  const stopCamera = () => {
-    if (html5QrCodeRef.current) {
-      html5QrCodeRef.current.stop().then(() => {
-        html5QrCodeRef.current = null;
-        setCameraActive(false);
-      }).catch(err => console.error(err));
-    }
-  };
-
-  const handleCloseModal = (e) => {
-    if (e) e.stopPropagation();
-    stopCamera();
-    setShowQrModal(false);
-    setQrUrl('');
-  };
-
-  const prepararCupomParaNome = (urlOuCodigo) => {
-    setCupomPendente({
-      id: Date.now(),
-      url: urlOuCodigo,
-      data: new Date().toLocaleDateString('pt-BR'),
-      hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    });
-    setNomeFantasiaInput('');
-    setShowQrModal(false);
-    setShowNomeFantasiaModal(true);
-  };
-
-  const salvarCupomComNomeFantasia = (e) => {
-    e.preventDefault();
-    if (!cupomPendente) return;
-
-    const nomeFinal = nomeFantasiaInput.trim() ? nomeFantasiaInput.toUpperCase() : 'MERCADO NÃO IDENTIFICADO';
-
-    const novoCupom = {
-      ...cupomPendente,
-      mercado: nomeFinal,
-      totalItens: Math.floor(Math.random() * 5) + 3
-    };
-
-    setHistoricoCupons([novoCupom, ...historicoCupons]);
-    setShowNomeFantasiaModal(false);
-    setCupomPendente(null);
-    setNomeFantasiaInput('');
-    alert(`Cupom salvo para "${nomeFinal}"!`);
-  };
-
-  const excluirCupom = (cupomId) => {
-    if (confirm('Deseja remover este cupom?')) {
-      setHistoricoCupons(historicoCupons.filter(c => c.id !== cupomId));
-    }
-  };
-
-  // Login
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!usuario.trim()) return alert('Digite seu usuário');
-    
     setIsLogged(true);
     setScreen('dashboard');
-    carregarCuponsDoUsuario(usuario);
     await carregarListasDoBanco();
   };
 
   const handleLogout = () => {
     setIsLogged(false);
     setListas([]);
-    setHistoricoCupons([]);
-    setMercadosReais([]);
-    setUsandoGeo(false);
     setScreen('login');
   };
 
-  const handleRegister = (e) => {
-    e.preventDefault();
-    if (!aceitaLgpd) {
-      alert('Você precisa aceitar os Termos (LGPD).');
-      return;
-    }
-    alert('Cadastro realizado! Faça login.');
-    setScreen('login');
-  };
-
-  const toggleListaAberta = (listaId) => {
-    setListasAbertas(prev => ({ ...prev, [listaId]: !prev[listaId] }));
-  };
-
-  // --- CRIAR NOVA LISTA DIRECTAMENTE NO BANCO ---
   const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
-
-    const nomeLista = novaListaNome.trim().toUpperCase();
 
     try {
       const res = await fetch('/api/listas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nomeLista })
+        body: JSON.stringify({ nome: novaListaNome.trim().toUpperCase() })
       });
 
       if (res.ok) {
@@ -237,11 +97,10 @@ export default function Home() {
         setListasAbertas(prev => ({ ...prev, [novaListaCriada.id]: true }));
         setNovaListaNome('');
       } else {
-        alert('Erro ao salvar a lista no banco.');
+        alert('Ocorreu um erro ao salvar no banco. Tente novamente.');
       }
     } catch (err) {
       console.error('Erro ao criar lista:', err);
-      alert('Não foi possível se conectar ao servidor.');
     }
   };
 
@@ -255,10 +114,8 @@ export default function Home() {
     }));
   };
 
-  // --- ADICIONAR ITEM SALVANDO NO BANCO DE DADOS ---
   const adicionarItem = async (e, listaId) => {
     if (e) e.preventDefault();
-
     const input = inputsItens[listaId];
     if (!input || !input.nome || !input.nome.trim()) return;
 
@@ -283,21 +140,16 @@ export default function Home() {
 
       if (res.ok) {
         const itemSalvo = await res.json();
-
         setListas(prevListas => prevListas.map(l => {
           if (l.id === listaId) {
             return { ...l, itens: [...(l.itens || []), itemSalvo] };
           }
           return l;
         }));
-
         setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
-      } else {
-        alert('Não foi possível salvar o item no banco.');
       }
     } catch (err) {
-      console.error('Erro ao adicionar item no banco:', err);
-      alert('Erro de conexão com o servidor.');
+      console.error('Erro ao adicionar item:', err);
     }
   };
 
@@ -324,37 +176,16 @@ export default function Home() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
-    }).catch(err => console.warn('Erro ao atualizar quantidade:', err));
-  };
-
-  const atualizarQuantidadeDireta = async (listaId, itemId, valorInput) => {
-    const qtdNum = Math.max(1, parseInt(valorInput) || 1);
-
-    setListas(prevListas => prevListas.map(l => {
-      if (l.id === listaId) {
-        return {
-          ...l,
-          itens: (l.itens || []).map(item => item.id === itemId ? { ...item, qtd: qtdNum } : item)
-        };
-      }
-      return l;
-    }));
-
-    await fetch('/api/listas', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: qtdNum })
-    }).catch(err => console.warn('Erro ao atualizar quantidade:', err));
+    });
   };
 
   const removerItem = async (listaId, itemId) => {
     setListas(prev => prev.map(l => l.id === listaId ? { ...l, itens: (l.itens || []).filter(i => i.id !== itemId) } : l));
-    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' }).catch(err => console.warn('Erro ao deletar item:', err));
+    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
   };
 
   const toggleCheck = async (listaId, itemId) => {
     let novoMarcado = false;
-
     setListas(prev => prev.map(l => {
       if (l.id === listaId) {
         return {
@@ -375,99 +206,16 @@ export default function Home() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
-    }).catch(err => console.warn('Erro ao salvar check:', err));
+    });
   };
 
   const deletarLista = async (id) => {
     if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
       setListas(prev => prev.filter(l => l.id !== id));
-      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' }).catch(err => console.warn('Erro ao deletar lista:', err));
+      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
     }
   };
 
-  const abrirComparacao = (listaId) => {
-    setListaParaCompararId(listaId);
-    setScreen('comparison');
-  };
-
-  // BUSCA GPS MERCADOS
-  const obterLocalizacaoEBuscarMercadosReais = () => {
-    if (!navigator.geolocation) return alert('Seu navegador não suporta geolocalização.');
-
-    setLoadingGeo(true);
-
-    const aplicarFallback = () => {
-      setMercadosReais([
-        { id: 'geo-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.88, origem: 'GPS (Próximo)' },
-        { id: 'geo-2', nome: 'CARREFOUR HIPER', fatorMultiplicador: 1.02, origem: 'GPS (Próximo)' },
-        { id: 'geo-3', nome: 'PÃO DE AÇÚCAR', fatorMultiplicador: 1.12, origem: 'GPS (Próximo)' },
-        { id: 'geo-4', nome: 'SUPERMERCADO DIA', fatorMultiplicador: 0.94, origem: 'GPS (Próximo)' }
-      ]);
-      setUsandoGeo(true);
-      setLoadingGeo(false);
-      alert('Mercados locais sincronizados via GPS!');
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const query = `[out:json][timeout:5];node(around:3000,${pos.coords.latitude},${pos.coords.longitude})["shop"~"supermarket|grocery"];out 10;`;
-          const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-          if (res.ok) {
-            const data = await res.json();
-            const nomes = Array.from(new Set((data.elements || []).map(e => e.tags?.name?.toUpperCase()).filter(Boolean)));
-            if (nomes.length > 0) {
-              setMercadosReais(nomes.map((n, i) => ({ id: `geo-${i}`, nome: n, fatorMultiplicador: 0.85 + (Math.random() * 0.3), origem: 'GPS (Real)' })));
-              setUsandoGeo(true);
-              setLoadingGeo(false);
-              return;
-            }
-          }
-          aplicarFallback();
-        } catch {
-          aplicarFallback();
-        }
-      },
-      () => {
-        setLoadingGeo(false);
-        alert('Não foi possível obter sua localização.');
-      }
-    );
-  };
-
-  const listaAtualComparacao = listas.find(l => l.id === listaParaCompararId) || listas[0] || { nome: 'NENHUMA LISTA', itens: [] };
-
-  const obterMercadosParaComparar = () => {
-    const bipados = Array.from(new Set(historicoCupons.map(c => c.mercado))).map((nome, i) => ({
-      id: `bip-${i}`,
-      nome,
-      fatorMultiplicador: 0.88 + ((i % 4) * 0.05),
-      origem: 'Bipado por Você'
-    }));
-
-    let base = bipados;
-
-    if (usandoGeo && mercadosReais.length > 0) {
-      mercadosReais.forEach(mr => {
-        if (!base.some(m => m.nome === mr.nome)) base.push(mr);
-      });
-    } else if (base.length === 0) {
-      base = [
-        { id: 'p-1', nome: 'ASSAÍ ATACADISTA', fatorMultiplicador: 0.92, origem: 'Regional' },
-        { id: 'p-2', nome: 'CARREFOUR', fatorMultiplicador: 1.05, origem: 'Regional' },
-        { id: 'p-3', nome: 'PÃO DE AÇÚCAR', fatorMultiplicador: 1.12, origem: 'Regional' }
-      ];
-    }
-
-    return base.map(m => {
-      const total = (listaAtualComparacao.itens || []).reduce((acc, item) => {
-        return acc + ((Number(item.precoEstimado) || 10) * item.qtd * m.fatorMultiplicador);
-      }, 0);
-      return { ...m, totalCalculado: total.toFixed(2), totalNum: total };
-    }).sort((a, b) => a.totalNum - b.totalNum);
-  };
-
-  // TELAS
   if (screen === 'login' && !isLogged) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
@@ -508,129 +256,6 @@ export default function Home() {
               Entrar
             </button>
           </form>
-
-          <p className="text-center text-xs text-gray-600">
-            Não tem uma conta?{' '}
-            <button onClick={() => setScreen('register')} className="text-[#0066a1] font-bold hover:underline">
-              Cadastre-se
-            </button>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === 'register' && !isLogged) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
-        <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-6">
-          <h1 className="text-2xl font-bold text-[#0066a1] text-center">👤⁺ Criar Conta</h1>
-
-          <form onSubmit={handleRegister} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Nome Completo</label>
-              <input type="text" value={nomeCompleto} onChange={e => setNomeCompleto(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 bg-white" required />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">CPF</label>
-              <input type="text" value={cpf} onChange={e => setCpf(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 bg-white" required />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Usuário</label>
-              <input type="text" value={usuario} onChange={e => setUsuario(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 bg-white" required />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
-              <input type="password" value={senha} onChange={e => setSenha(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 bg-white" required />
-            </div>
-
-            <div className="flex items-center gap-2 pt-2">
-              <input type="checkbox" id="lgpd" checked={aceitaLgpd} onChange={e => setAceitaLgpd(e.target.checked)} className="h-4 w-4" required />
-              <label htmlFor="lgpd" className="text-xs text-gray-600">Aceito os Termos LGPD.</label>
-            </div>
-
-            <button type="submit" className="w-full bg-[#1877f2] text-white py-3 rounded-full font-bold text-sm mt-4">
-              Concluir Cadastro
-            </button>
-          </form>
-
-          <p className="text-center text-xs text-gray-600">
-            <button onClick={() => setScreen('login')} className="text-gray-500 hover:underline">
-              ← Voltar para o Login
-            </button>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === 'comparison') {
-    const mercadosComparacao = obterMercadosParaComparar();
-
-    return (
-      <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
-        <div className="max-w-5xl mx-auto space-y-6">
-          <header className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border">
-            <div>
-              <span className="text-xs font-bold text-gray-400 uppercase">Análise de Economia</span>
-              <h1 className="text-xl font-black text-gray-800">{listaAtualComparacao.nome}</h1>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setShowQrModal(true)} className="bg-[#1877f2] text-white font-bold px-4 py-2 rounded-xl text-xs">
-                📱 Bipar Cupom
-              </button>
-              <button type="button" onClick={() => setScreen('dashboard')} className="bg-gray-100 text-gray-700 font-bold px-3 py-2 rounded-xl text-xs">
-                ← Voltar
-              </button>
-            </div>
-          </header>
-
-          <div className="bg-white p-4 rounded-2xl shadow-sm border space-y-3">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-sm font-bold text-gray-800">📍 Mercados da Sua Região</h2>
-                <p className="text-xs text-gray-500">Busque opções locais via geolocalização</p>
-              </div>
-              <button type="button" onClick={obterLocalizacaoEBuscarMercadosReais} disabled={loadingGeo} className="border-2 border-blue-500 text-blue-600 font-bold px-4 py-2 rounded-full text-xs">
-                {loadingGeo ? 'Buscando...' : 'Usar Geolocalização Real'}
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {mercadosComparacao.map((mercado, index) => {
-              const isMaisBarato = index === 0;
-              const isExpandido = mercadoExpandido === mercado.id;
-
-              return (
-                <div key={mercado.id} className={`rounded-2xl border-2 overflow-hidden ${isMaisBarato ? 'bg-emerald-50 border-emerald-500' : 'bg-white border-gray-200'}`}>
-                  <div onClick={() => setMercadoExpandido(isExpandido ? null : mercado.id)} className="p-4 cursor-pointer">
-                    {isMaisBarato && <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Mais Barato</span>}
-                    <h3 className="font-extrabold text-base text-gray-800 mt-1">{mercado.nome}</h3>
-                    <p className="text-2xl font-black text-emerald-600 mt-1">R$ {mercado.totalCalculado}</p>
-                  </div>
-
-                  {isExpandido && (
-                    <div className="p-4 border-t bg-white space-y-2">
-                      {listaAtualComparacao.itens?.map((item) => {
-                        const precoUnit = ((Number(item.precoEstimado) || 10) * mercado.fatorMultiplicador).toFixed(2);
-                        return (
-                          <div key={item.id} className="flex justify-between text-xs">
-                            <span>{item.nome} ({item.qtd} UN)</span>
-                            <span className="font-bold">R$ {(precoUnit * item.qtd).toFixed(2)}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
         </div>
       </div>
     );
@@ -639,7 +264,6 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
       <div className="max-w-3xl mx-auto space-y-4">
-
         <header className="flex justify-between items-center bg-white px-4 py-3 rounded-2xl shadow-sm border">
           <h1 className="text-base sm:text-lg font-extrabold text-[#0d824d] flex items-center gap-1.5">
             🛒 TÁ QUANTO?
@@ -687,187 +311,89 @@ export default function Home() {
             <div className="bg-white p-6 rounded-2xl text-center border space-y-2">
               <p className="text-xs font-bold text-gray-500">Conectando ao Banco Neon...</p>
             </div>
-          ) : listas.length === 0 ? (
-            <div className="bg-white p-6 rounded-2xl text-center border space-y-2">
-              <p className="text-xs font-bold text-gray-500">Nenhuma lista encontrada.</p>
-            </div>
-          ) : (
-            listas.map((lista) => {
-              const estaAberta = !!listasAbertas[lista.id];
-              const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
-              const itensLista = lista.itens || [];
+          ) : listas.map((lista) => {
+            const estaAberta = !!listasAbertas[lista.id];
+            const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
+            const itensLista = lista.itens || [];
 
-              return (
-                <div key={lista.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                  
-                  <div 
-                    onClick={() => toggleListaAberta(lista.id)}
-                    className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 select-none"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-base text-blue-600 font-bold">{estaAberta ? '📂' : '📁'}</span>
-                      <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 uppercase">{lista.nome}</h3>
-                      <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full">
-                        {itensLista.length} {itensLista.length === 1 ? 'item' : 'itens'}
-                      </span>
-                    </div>
-
-                    <span className="text-[11px] font-bold text-gray-500">{estaAberta ? '▲' : '▼'}</span>
+            return (
+              <div key={lista.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div 
+                  onClick={() => setListasAbertas(p => ({ ...p, [lista.id]: !p[lista.id] }))}
+                  className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 select-none"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-base text-blue-600 font-bold">{estaAberta ? '📂' : '📁'}</span>
+                    <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 uppercase">{lista.nome}</h3>
+                    <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                      {itensLista.length} {itensLista.length === 1 ? 'item' : 'itens'}
+                    </span>
                   </div>
-
-                  {estaAberta && (
-                    <div className="border-t border-gray-100 bg-white">
-                      <div className="p-2.5 bg-gray-50/80 border-b flex items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => abrirComparacao(lista.id)}
-                          className="bg-[#0d824d] text-white text-xs font-bold px-3 py-1.5 rounded-lg"
-                        >
-                          📊 Comparar Preços
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => deletarLista(lista.id)}
-                          className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg text-xs font-bold"
-                        >
-                          🗑️ Excluir Lista
-                        </button>
-                      </div>
-
-                      <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="NOME DO ITEM..."
-                          value={inputAtual.nome}
-                          onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                          className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
-                          required
-                        />
-                        <input
-                          type="number"
-                          min="1"
-                          value={inputAtual.qtd}
-                          onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                          className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
-                        />
-                        <button type="submit" className="bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold">
-                          + Adicionar
-                        </button>
-                      </form>
-
-                      <div className="divide-y">
-                        {itensLista.length === 0 ? (
-                          <div className="p-4 text-center text-xs text-gray-400 italic">
-                            Nenhum item salvo nesta lista.
-                          </div>
-                        ) : (
-                          itensLista.map(item => {
-                            const marcaCorreta = item.marca || obterMarcaParaItem(item.nome);
-                            return (
-                              <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
-                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(item.marcado)}
-                                    onChange={() => toggleCheck(lista.id, item.id)}
-                                    className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer"
-                                  />
-                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                    <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                      {item.nome}
-                                    </span>
-                                    <span className="text-[10px] bg-gray-100 text-gray-600 font-bold px-1.5 py-0.5 rounded">
-                                      🏷️ {marcaCorreta}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1.5">
-                                  <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
-                                    <button
-                                      type="button"
-                                      onClick={() => alterarQuantidade(lista.id, item.id, -1)}
-                                      className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs"
-                                    >
-                                      -
-                                    </button>
-                                    
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      value={item.qtd}
-                                      onChange={(e) => atualizarQuantidadeDireta(lista.id, item.id, e.target.value)}
-                                      className="w-10 text-center text-xs font-bold text-gray-800 bg-transparent p-0"
-                                    />
-
-                                    <button
-                                      type="button"
-                                      onClick={() => alterarQuantidade(lista.id, item.id, 1)}
-                                      className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-
-                                  <button 
-                                    type="button" 
-                                    onClick={() => removerItem(lista.id, item.id)} 
-                                    className="text-red-500 hover:text-red-700 text-xs font-bold px-1 py-0.5 rounded"
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-
-                    </div>
-                  )}
+                  <span className="text-[11px] font-bold text-gray-500">{estaAberta ? '▲' : '▼'}</span>
                 </div>
-              );
-            })
-          )}
-        </div>
 
+                {estaAberta && (
+                  <div className="border-t border-gray-100 bg-white">
+                    <div className="p-2.5 bg-gray-50/80 border-b flex items-center justify-between gap-2">
+                      <button type="button" onClick={() => deletarLista(lista.id)} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg text-xs font-bold">
+                        🗑️ Excluir Lista
+                      </button>
+                    </div>
+
+                    <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="NOME DO ITEM..."
+                        value={inputAtual.nome}
+                        onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
+                        className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
+                        required
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        value={inputAtual.qtd}
+                        onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
+                        className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
+                      />
+                      <button type="submit" className="bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+                        + Adicionar
+                      </button>
+                    </form>
+
+                    <div className="divide-y">
+                      {itensLista.map(item => (
+                        <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(item.marcado)}
+                              onChange={() => toggleCheck(lista.id, item.id)}
+                              className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer"
+                            />
+                            <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                              {item.nome}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
+                              <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, -1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">-</button>
+                              <span className="w-8 text-center text-xs font-bold">{item.qtd}</span>
+                              <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, 1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">+</button>
+                            </div>
+                            <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
-
-      {/* MODAIS */}
-      {showQrModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-md space-y-4">
-            <h3 className="text-base font-bold text-gray-800">📱 Bipar QR Code</h3>
-            <div id="reader" className="w-full overflow-hidden rounded-xl border-2 border-blue-500 bg-black"></div>
-            <button type="button" onClick={handleCloseModal} className="w-full bg-red-100 text-red-600 font-bold py-2 rounded-xl text-xs">
-              Fechar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showNomeFantasiaModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-md space-y-4">
-            <h3 className="text-base font-bold text-gray-800">🏪 Nome do Mercado</h3>
-            <form onSubmit={salvarCupomComNomeFantasia} className="space-y-4">
-              <input
-                type="text"
-                placeholder="EX: CARREFOUR, ASSAÍ..."
-                value={nomeFantasiaInput}
-                onChange={e => setNomeFantasiaInput(e.target.value)}
-                className="w-full px-3 py-2 border rounded-xl text-xs font-semibold uppercase bg-white"
-                required
-              />
-              <button type="submit" className="w-full bg-[#0d824d] text-white py-2 rounded-xl text-xs font-bold">
-                Salvar Cupom
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
