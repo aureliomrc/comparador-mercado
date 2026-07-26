@@ -19,6 +19,7 @@ export default function Home() {
   // Comparação e Geolocalização
   const [listaParaCompararId, setListaParaCompararId] = useState(null);
   const [mercadoExpandido, setMercadoExpandido] = useState(false);
+  const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
@@ -26,7 +27,7 @@ export default function Home() {
   // Modais de QR Code / Cupom Fiscal
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
-  const [cameraActive, setCameraActive] = useState(false);
+  const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [historicoCupons, setHistoricoCupons] = useState([]);
 
   const obterMarcaParaItem = (nomeItem) => {
@@ -93,7 +94,7 @@ export default function Home() {
 
           if (data.elements && data.elements.length > 0) {
             const mercadosEncontrados = data.elements.map((el, index) => ({
-              id: el.id,
+              id: el.id || index,
               nome: (el.tags.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
               distancia: (Math.random() * 2 + 0.5).toFixed(1) + ' km',
               fatorPreco: 1 + (index * 0.03 - 0.02)
@@ -118,24 +119,29 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // CUPOM FISCAL / QR CODE
+  // CUPOM FISCAL / QR CODE COM NOME FANTASIA
   // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
-    if (!qrUrlInput.trim()) return alert('Insira a URL ou dados do QR Code!');
+    if (!qrUrlInput.trim() && !nomeFantasiaInput.trim()) {
+      return alert('Preencha os dados do QR Code ou o Nome Fantasia do estabelecimento!');
+    }
+
+    const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO PROCESSADO VIA QR CODE';
 
     const novoCupom = {
       id: Date.now(),
       data: new Date().toLocaleDateString('pt-BR'),
-      mercado: 'MERCADO PROCESSADO VIA QR CODE',
+      mercado: nomeEstabelecimento,
       valorTotal: (Math.random() * 80 + 20).toFixed(2),
       url: qrUrlInput
     };
 
     setHistoricoCupons(prev => [novoCupom, ...prev]);
     setQrUrlInput('');
+    setNomeFantasiaInput('');
     setShowQrModal(false);
-    alert(`Cupom bipado com sucesso! Valor estimado: R$ ${novoCupom.valorTotal}`);
+    alert(`Cupom do "${nomeEstabelecimento}" registrado com sucesso! Total estimado: R$ ${novoCupom.valorTotal}`);
   };
 
   // ----------------------------------------------------
@@ -325,6 +331,12 @@ export default function Home() {
   }
 
   const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
+
+  const listaMercadosParaExibir = mercadosReais.length > 0 ? mercadosReais : [
+    { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MENOR PREÇO', corTag: 'bg-green-100 text-green-800' },
+    { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MAIS PRÓXIMO', corTag: 'bg-blue-100 text-blue-800' },
+    { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'OPÇÃO PREMIUM', corTag: 'bg-purple-100 text-purple-800' }
+  ];
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
@@ -542,7 +554,7 @@ export default function Home() {
           })}
         </div>
 
-        {/* MODAL DE LEITURA / BIPAR QR CODE DO CUPOM FISCAL */}
+        {/* MODAL DE BIPAR QR CODE DO CUPOM FISCAL COM NOME FANTASIA */}
         {showQrModal && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
@@ -559,18 +571,28 @@ export default function Home() {
               </div>
 
               {/* SIMULADOR DE CÂMERA */}
-              <div className="bg-gray-900 rounded-2xl h-44 flex flex-col items-center justify-center text-white space-y-2 relative overflow-hidden border-2 border-dashed border-purple-400">
-                <div className="animate-pulse text-3xl">📱</div>
-                <p className="text-xs font-bold text-gray-300">Aponte a câmera para o QR Code da Nota Fiscal</p>
-                <span className="text-[10px] bg-purple-800/80 text-purple-200 px-3 py-1 rounded-full">
-                  Pronto para leitura
-                </span>
+              <div className="bg-gray-900 rounded-2xl h-36 flex flex-col items-center justify-center text-white space-y-1 relative overflow-hidden border-2 border-dashed border-purple-400">
+                <div className="animate-pulse text-2xl">📱</div>
+                <p className="text-xs font-bold text-gray-300">Aponte a câmera para o QR Code da Nota</p>
               </div>
 
               <form onSubmit={processarCupomQrCode} className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Ou cole o Link / Chave do QR Code da Nota:
+                    Nome Fantasia do Estabelecimento:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Supermercado Silva, Carrefour Centro..."
+                    value={nomeFantasiaInput}
+                    onChange={(e) => setNomeFantasiaInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                    Link / Chave do QR Code da Nota (Opcional):
                   </label>
                   <input
                     type="text"
@@ -581,7 +603,7 @@ export default function Home() {
                   />
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => setShowQrModal(false)}
@@ -593,7 +615,7 @@ export default function Home() {
                     type="submit"
                     className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
                   >
-                    Processar Nota
+                    Salvar Cupom
                   </button>
                 </div>
               </form>
@@ -601,7 +623,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* MODAL DE COMPARAÇÃO DE PREÇOS */}
+        {/* MODAL DE COMPARAÇÃO DE PREÇOS COM EXPANSÃO DE CARD POR MERCADO */}
         {mercadoExpandido && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
@@ -611,11 +633,14 @@ export default function Home() {
                     <span>🛒</span> Comparativo da Lista: <span className="text-emerald-700">{listaSelecionada?.nome}</span>
                   </h3>
                   <p className="text-[10px] text-gray-500 font-semibold">
-                    {usandoGeo ? '📍 Mercados reais encontrados pelo seu GPS' : '💡 Mercados padrões sugeridos'}
+                    Clique em um card para ver os preços detalhados de cada item
                   </p>
                 </div>
                 <button 
-                  onClick={() => setMercadoExpandido(false)}
+                  onClick={() => {
+                    setMercadoExpandido(false);
+                    setMercadoSelecionadoDetalhe(null);
+                  }}
                   className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
                 >
                   ✕
@@ -623,36 +648,77 @@ export default function Home() {
               </div>
 
               <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-                {(mercadosReais.length > 0 ? mercadosReais : [
-                  { nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MENOR PREÇO', corTag: 'bg-green-100 text-green-800' },
-                  { nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MAIS PRÓXIMO', corTag: 'bg-blue-100 text-blue-800' },
-                  { nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'OPÇÃO PREMIUM', corTag: 'bg-purple-100 text-purple-800' }
-                ]).map((mercado, idx) => {
+                {listaMercadosParaExibir.map((mercado, idx) => {
                   const itensDaLista = listaSelecionada?.itens || [];
+                  const fator = mercado.fatorPreco || 1;
                   const totalBase = itensDaLista.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
-                  const totalCalculado = (totalBase * (mercado.fatorPreco || 1)).toFixed(2);
+                  const totalCalculado = (totalBase * fator).toFixed(2);
+                  const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
 
                   return (
-                    <div key={idx} className="p-4 rounded-2xl border border-gray-200 hover:border-emerald-500 transition-all bg-gray-50 flex items-center justify-between">
-                      <div className="space-y-1">
-                        {mercado.tag && (
-                          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
-                            {mercado.tag}
-                          </span>
-                        )}
-                        <h4 className="text-xs font-extrabold text-gray-800">{mercado.nome}</h4>
-                        <p className="text-[10px] text-gray-500 font-medium">📍 Distância: {mercado.distancia || 'Próximo'}</p>
+                    <div 
+                      key={mercado.id || idx} 
+                      className={`rounded-2xl border transition-all bg-gray-50 overflow-hidden ${estaAbertoDetalhe ? 'border-emerald-500 shadow-md ring-2 ring-emerald-500/20' : 'border-gray-200 hover:border-emerald-400'}`}
+                    >
+                      {/* CARD DO MERCADO */}
+                      <div 
+                        onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
+                        className="p-4 flex items-center justify-between cursor-pointer select-none"
+                      >
+                        <div className="space-y-1">
+                          {mercado.tag && (
+                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
+                              {mercado.tag}
+                            </span>
+                          )}
+                          <h4 className="text-xs font-extrabold text-gray-800 flex items-center gap-1.5">
+                            {mercado.nome}
+                            <span className="text-[10px] text-emerald-600 font-bold">{estaAbertoDetalhe ? '▲ Ver menos' : '▼ Clique p/ ver itens'}</span>
+                          </h4>
+                          <p className="text-[10px] text-gray-500 font-medium">📍 Distância: {mercado.distancia || 'Próximo'}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-base font-black text-emerald-600 block">R$ {totalCalculado}</span>
+                          <span className="text-[9px] text-gray-400 font-bold">{itensDaLista.length} itens</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-base font-black text-emerald-600">R$ {totalCalculado}</span>
-                      </div>
+
+                      {/* DETALHAMENTO ITEM POR ITEM COM PREÇOS ESTIMADOS */}
+                      {estaAbertoDetalhe && (
+                        <div className="bg-white p-3 border-t border-emerald-100 space-y-2">
+                          <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                            Preço estimado de cada item no {mercado.nome}:
+                          </h5>
+                          <div className="divide-y divide-gray-100">
+                            {itensDaLista.map(item => {
+                              const precoUn = ((item.precoEstimado || 8.5) * fator).toFixed(2);
+                              const subtotal = (precoUn * (item.qtd || 1)).toFixed(2);
+
+                              return (
+                                <div key={item.id} className="py-1.5 flex justify-between items-center text-xs">
+                                  <div>
+                                    <span className="font-bold text-gray-800">{item.nome}</span>
+                                    <span className="text-[10px] text-gray-400 block font-medium">
+                                      {item.qtd}x un · R$ {precoUn} cada
+                                    </span>
+                                  </div>
+                                  <span className="font-extrabold text-emerald-700">R$ {subtotal}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
 
               <button
-                onClick={() => setMercadoExpandido(false)}
+                onClick={() => {
+                  setMercadoExpandido(false);
+                  setMercadoSelecionadoDetalhe(null);
+                }}
                 className="w-full bg-gray-900 hover:bg-black text-white font-bold py-3 rounded-xl text-xs transition-all shadow"
               >
                 Fechar Comparação
