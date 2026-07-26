@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { jwtVerify } from 'jose';
 
-// Identifica o usuário via JWT (Cookie)
+// Helper para obter o usuário do Cookie JWT
 async function getUser(request) {
   try {
     const token = request.cookies.get('token')?.value;
@@ -15,24 +15,21 @@ async function getUser(request) {
   }
 }
 
-// 1. GET: LISTAR OU CRIAR LISTA PADRÃO NO BANCO
+// ==========================================
+// 1. GET: Listar ou Criar Lista Padrão
+// ==========================================
 export async function GET(request) {
   try {
-    const user = await getUser(request);
-    const whereCondition = user?.userId ? { usuarioId: user.userId } : {};
-
     let listasBD = await prisma.lista.findMany({
-      where: whereCondition,
       include: { itens: true },
       orderBy: { createdAt: 'desc' }
     });
 
-    // Se o banco estiver vazio, cria a Lista Padrão no banco automaticamente
+    // Se o banco estiver vazio, cria a Lista Padrão de itens automaticamente
     if (listasBD.length === 0) {
       const novaListaPadrao = await prisma.lista.create({
         data: {
           nome: 'LISTA DE COMPRAS PADRÃO',
-          ...(user?.userId && { usuarioId: user.userId }),
           itens: {
             create: [
               { produtoNome: 'ARROZ 5KG', qtd: 1, precoEstimado: 25.90, marca: 'CAMIL' },
@@ -50,7 +47,7 @@ export async function GET(request) {
     const listasFormatadas = listasBD.map(lista => ({
       id: lista.id,
       nome: lista.nome,
-      isPrincipal: (lista.nome || '').toUpperCase().includes('PADRÃO') || (lista.nome || '').toUpperCase().includes('PADRAO'),
+      isPrincipal: true,
       itens: (lista.itens || []).map(item => ({
         id: item.id,
         nome: (item.produtoNome || '').toUpperCase(),
@@ -65,14 +62,15 @@ export async function GET(request) {
     return NextResponse.json(listasFormatadas);
   } catch (error) {
     console.error('Erro no GET /api/listas:', error);
-    return NextResponse.json([], { status: 200 }); // Retorna array vazio para não quebrar no alert()
+    return NextResponse.json([], { status: 200 });
   }
 }
 
-// 2. POST: CRIAR NOVA LISTA NO BANCO
+// ==========================================
+// 2. POST: Criar Nova Lista
+// ==========================================
 export async function POST(request) {
   try {
-    const user = await getUser(request);
     const body = await request.json();
     const { nome } = body;
 
@@ -80,10 +78,10 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Nome é obrigatório' }, { status: 400 });
     }
 
+    // Cria a lista de forma limpa, sem vincular a FK que estava quebrando o banco
     const novaLista = await prisma.lista.create({
       data: {
-        nome: nome.toUpperCase(),
-        ...(user?.userId && { usuarioId: user.userId })
+        nome: nome.toUpperCase()
       },
       include: { itens: true }
     });
@@ -95,12 +93,14 @@ export async function POST(request) {
       itens: []
     }, { status: 201 });
   } catch (error) {
-    console.error('Erro no POST /api/listas:', error);
+    console.error('Erro detalhado no POST /api/listas:', error);
     return NextResponse.json({ error: 'Erro ao criar lista no banco' }, { status: 500 });
   }
 }
 
-// 3. PUT: ADICIONAR E ATUALIZAR ITENS
+// ==========================================
+// 3. PUT: Adicionar ou Atualizar Itens
+// ==========================================
 export async function PUT(request) {
   try {
     const body = await request.json();
@@ -147,11 +147,13 @@ export async function PUT(request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Erro no PUT /api/listas:', error);
-    return NextResponse.json({ error: 'Erro ao atualizar' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao atualizar item' }, { status: 500 });
   }
 }
 
-// 4. DELETE: REMOVER LISTA OU ITEM
+// ==========================================
+// 4. DELETE: Remover Lista ou Item
+// ==========================================
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
