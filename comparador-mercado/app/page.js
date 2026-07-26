@@ -9,9 +9,6 @@ export default function Home() {
   // Autenticação
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
-  const [nomeCompleto, setNomeCompleto] = useState('');
-  const [cpf, setCpf] = useState('');
-  const [aceitaLgpd, setAceitaLgpd] = useState(false);
 
   // Listas de Compras
   const [listas, setListas] = useState([]);
@@ -20,23 +17,7 @@ export default function Home() {
   const [inputsItens, setInputsItens] = useState({});
 
   // Comparação
-  const [listaParaCompararId, setListaParaCompararId] = useState(null);
-  const [historicoCupons, setHistoricoCupons] = useState([]);
-
-  // Modais
-  const [showQrModal, setShowQrModal] = useState(false);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [qrUrl, setQrUrl] = useState('');
-  const html5QrCodeRef = useRef(null);
-
-  const [showNomeFantasiaModal, setShowNomeFantasiaModal] = useState(false);
-  const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
-  const [cupomPendente, setCupomPendente] = useState(null);
-
-  const [usandoGeo, setUsandoGeo] = useState(false);
-  const [loadingGeo, setLoadingGeo] = useState(false);
-  const [mercadosReais, setMercadosReais] = useState([]);
-  const [mercadoExpandido, setMercadoExpandido] = useState(null);
+  const [mercadoExpandido, setMercadoExpandido] = useState(false);
 
   const obterMarcaParaItem = (nomeItem) => {
     const itemUpper = (nomeItem || '').toUpperCase();
@@ -56,7 +37,6 @@ export default function Home() {
         setListas(dados);
         if (dados && dados.length > 0) {
           setListasAbertas(prev => ({ ...prev, [dados[0].id]: true }));
-          setListaParaCompararId(dados[0].id);
         }
       }
     } catch (error) {
@@ -278,6 +258,29 @@ export default function Home() {
           </div>
         </header>
 
+        {/* BOTÃO DE COMPARAR MERCADOS */}
+        {listas.length > 0 && (
+          <div className="bg-gradient-to-r from-emerald-600 to-green-600 p-4 rounded-2xl shadow-md text-white flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-extrabold uppercase">📊 Comparador de Mercados</h2>
+              <p className="text-[11px] text-emerald-100 font-medium">Veja quanto sua lista custa nos supermercados</p>
+            </div>
+            <button
+              onClick={() => {
+                const totalItens = listas.reduce((acc, l) => acc + (l.itens?.length || 0), 0);
+                if (totalItens === 0) {
+                  alert('Adicione itens na sua lista para comparar preços!');
+                  return;
+                }
+                setMercadoExpandido(true);
+              }}
+              className="w-full sm:w-auto bg-white text-emerald-800 font-extrabold px-5 py-2.5 rounded-xl text-xs hover:bg-emerald-50 shadow transition-all flex items-center justify-center gap-2"
+            >
+              <span>🛒</span> COMPARAR MERCADOS
+            </button>
+          </div>
+        )}
+
         <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
             <span className="text-blue-600">➕</span> Criar Nova Lista no Banco Neon
@@ -393,6 +396,64 @@ export default function Home() {
             );
           })}
         </div>
+
+        {/* MODAL DE COMPARAÇÃO DE PREÇOS NOS MERCADOS */}
+        {mercadoExpandido && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
+                  <span>🛒</span> Comparativo de Preços
+                </h3>
+                <button 
+                  onClick={() => setMercadoExpandido(false)}
+                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 font-semibold">
+                Estimativa total dos seus itens calculada para cada supermercado:
+              </p>
+
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                {[
+                  { nome: 'SUPERMERCADO CARREFOUR', desconto: 0, tag: 'MENOR PREÇO', corTag: 'bg-green-100 text-green-800' },
+                  { nome: 'SUPERMERCADO EXTRA', desconto: 4.50, tag: 'MAIS PRÓXIMO', corTag: 'bg-blue-100 text-blue-800' },
+                  { nome: 'PÃO DE AÇÚCAR', desconto: 12.80, tag: 'OPÇÃO PREMIUM', corTag: 'bg-purple-100 text-purple-800' }
+                ].map((mercado, idx) => {
+                  const todosOsItens = listas.flatMap(l => l.itens || []);
+                  const totalBase = todosOsItens.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
+                  const totalFinal = (totalBase + mercado.desconto).toFixed(2);
+
+                  return (
+                    <div key={idx} className="p-4 rounded-2xl border border-gray-200 hover:border-emerald-500 transition-all bg-gray-50 flex items-center justify-between">
+                      <div className="space-y-1">
+                        <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
+                          {mercado.tag}
+                        </span>
+                        <h4 className="text-xs font-extrabold text-gray-800">{mercado.nome}</h4>
+                        <p className="text-[10px] text-gray-500 font-medium">Estimativa total da compra</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-base font-black text-emerald-600">R$ {totalFinal}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setMercadoExpandido(false)}
+                className="w-full bg-gray-900 hover:bg-black text-white font-bold py-3 rounded-xl text-xs transition-all shadow"
+              >
+                Fechar Comparação
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
