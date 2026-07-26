@@ -30,13 +30,16 @@ export default function Home() {
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [historicoCupons, setHistoricoCupons] = useState([]);
 
+  // Inteligência SEFAZ para identificar Marca Padrão
   const obterMarcaParaItem = (nomeItem) => {
     const itemUpper = (nomeItem || '').toUpperCase();
     if (itemUpper.includes('ARROZ')) return 'CAMIL';
     if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
     if (itemUpper.includes('LEITE')) return 'NINHO';
     if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
-    return 'MARCA PADRÃO';
+    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
+    if (itemUpper.includes('OLEO') || itemUpper.includes('ÓLEO')) return 'LIZA';
+    return 'MARCA SEFAZ';
   };
 
   const carregarListasDoBanco = async () => {
@@ -531,9 +534,16 @@ export default function Home() {
                               onChange={() => toggleCheck(lista.id, item.id)}
                               className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer"
                             />
-                            <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                              {item.nome}
-                            </span>
+                            <div>
+                              <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                {item.nome}
+                              </span>
+                              {item.marca && (
+                                <span className="text-[10px] text-gray-400 block font-medium">
+                                  Marca SEFAZ: {item.marca}
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-1.5">
@@ -623,7 +633,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* MODAL DE COMPARAÇÃO DE PREÇOS COM EXPANSÃO DE CARD POR MERCADO */}
+        {/* MODAL DE COMPARAÇÃO DE PREÇOS COM COM MARCA DO SEFAZ E EXPANSÃO */}
         {mercadoExpandido && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
@@ -633,7 +643,7 @@ export default function Home() {
                     <span>🛒</span> Comparativo da Lista: <span className="text-emerald-700">{listaSelecionada?.nome}</span>
                   </h3>
                   <p className="text-[10px] text-gray-500 font-semibold">
-                    Clique em um card para ver os preços detalhados de cada item
+                    Exibindo marcas de acordo com a base de dados do SEFAZ
                   </p>
                 </div>
                 <button 
@@ -683,22 +693,28 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* DETALHAMENTO ITEM POR ITEM COM PREÇOS ESTIMADOS */}
+                      {/* DETALHAMENTO ITEM POR ITEM COM MARCA DO SEFAZ */}
                       {estaAbertoDetalhe && (
                         <div className="bg-white p-3 border-t border-emerald-100 space-y-2">
                           <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                            Preço estimado de cada item no {mercado.nome}:
+                            Preço estimado e marcas SEFAZ no {mercado.nome}:
                           </h5>
                           <div className="divide-y divide-gray-100">
                             {itensDaLista.map(item => {
                               const precoUn = ((item.precoEstimado || 8.5) * fator).toFixed(2);
                               const subtotal = (precoUn * (item.qtd || 1)).toFixed(2);
+                              const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
 
                               return (
-                                <div key={item.id} className="py-1.5 flex justify-between items-center text-xs">
+                                <div key={item.id} className="py-2 flex justify-between items-center text-xs">
                                   <div>
-                                    <span className="font-bold text-gray-800">{item.nome}</span>
-                                    <span className="text-[10px] text-gray-400 block font-medium">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-bold text-gray-800">{item.nome}</span>
+                                      <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
+                                        🏷️ {marcaExibicao}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 block font-medium mt-0.5">
                                       {item.qtd}x un · R$ {precoUn} cada
                                     </span>
                                   </div>
