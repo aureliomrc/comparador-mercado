@@ -105,8 +105,10 @@ export default function Home() {
       if (res.ok) {
         let dados = await res.json();
         
-        // Procura se a LISTA DE COMPRAS PADRÃO já existe
-        let temPadrao = dados && dados.some(l => l.nome === 'LISTA DE COMPRAS PADRÃO');
+        // Procura flexível (compara ignorando acentos/caixa alta)
+        let temPadrao = dados && dados.some(l => 
+          (l.nome || '').toUpperCase().includes('PADRÃO') || (l.nome || '').toUpperCase().includes('PADRAO')
+        );
 
         if (!temPadrao) {
           const listaPadraoCriada = await criarListaPadraoNoBanco();
@@ -124,7 +126,7 @@ export default function Home() {
         throw new Error('Falha ao obter listas');
       }
     } catch (error) {
-      console.error('Erro ao buscar listas do servidor, aplicando fallback com Lista Padrão:', error);
+      console.error('Erro ao buscar listas do servidor, aplicando fallback:', error);
       
       const listaFallback = [{
         id: 'fallback-1',
@@ -279,7 +281,7 @@ export default function Home() {
     setListasAbertas(prev => ({ ...prev, [listaId]: !prev[listaId] }));
   };
 
-  // --- CRIAR NOVA LISTA COM RESPOSTA INSTANTÂNEA E FALLBACK ---
+  // --- CRIAR NOVA LISTA COM RESPOSTA INSTANTÂNEA ---
   const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
@@ -287,7 +289,6 @@ export default function Home() {
     const nomeLista = novaListaNome.trim().toUpperCase();
     const tempId = `temp-${Date.now()}`;
 
-    // 1. Adiciona a lista IMEDIATAMENTE na UI
     const novaListaLocal = {
       id: tempId,
       nome: nomeLista,
@@ -298,7 +299,6 @@ export default function Home() {
     setListasAbertas(prev => ({ ...prev, [tempId]: true }));
     setNovaListaNome('');
 
-    // 2. Persiste no banco de dados em segundo plano
     try {
       const res = await fetch('/api/listas', {
         method: 'POST',
@@ -308,8 +308,6 @@ export default function Home() {
 
       if (res.ok) {
         const listaSalva = await res.json();
-        
-        // Substitui o ID temporário pelo ID oficial vindo do Prisma
         setListas(prev => prev.map(l => l.id === tempId ? { ...listaSalva, itens: [] } : l));
         setListasAbertas(prev => {
           const copia = { ...prev };
@@ -317,11 +315,9 @@ export default function Home() {
           copia[listaSalva.id] = true;
           return copia;
         });
-      } else {
-        console.warn('API não salvou no banco. Mantendo lista no modo local.');
       }
     } catch (err) {
-      console.error('Erro de conexão ao criar lista:', err);
+      console.warn('Erro de conexão ao criar lista:', err);
     }
   };
 
@@ -335,15 +331,40 @@ export default function Home() {
     }));
   };
 
+  // --- ADICIONAR ITEM (INTERFACE INSTANTÂNEA + ATUALIZAÇÃO NO BANCO) ---
   const adicionarItem = async (e, listaId) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+
     const input = inputsItens[listaId];
     if (!input || !input.nome || !input.nome.trim()) return;
 
-    const nomeFormatado = input.nome.toUpperCase();
+    const nomeFormatado = input.nome.trim().toUpperCase();
+    const qtdInserida = Number(input.qtd) || 1;
     const precoEstimadoBase = (Math.random() * 15 + 3).toFixed(2);
     const marcaCalculada = obterMarcaParaItem(nomeFormatado);
+    const tempItemId = Date.now();
 
+    const novoItemLocal = {
+      id: tempItemId,
+      nome: nomeFormatado,
+      qtd: qtdInserida,
+      precoEstimado: precoEstimadoBase,
+      marca: marcaCalculada,
+      marcado: false
+    };
+
+    // 1. Atualiza na tela imediatamente
+    setListas(prevListas => prevListas.map(l => {
+      if (l.id === listaId) {
+        return { ...l, itens: [...(l.itens || []), novoItemLocal] };
+      }
+      return l;
+    }));
+
+    // Limpa o campo de entrada do formulário
+    setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
+
+    // 2. Persiste no banco de dados em segundo plano
     try {
       const res = await fetch('/api/listas', {
         method: 'PUT',
@@ -352,7 +373,7 @@ export default function Home() {
           acao: 'ADICIONAR_ITEM',
           listaId,
           nome: nomeFormatado,
-          qtd: input.qtd || 1,
+          qtd: qtdInserida,
           precoEstimado: precoEstimadoBase,
           marca: marcaCalculada
         })
@@ -360,11 +381,19 @@ export default function Home() {
 
       if (res.ok) {
         const itemSalvo = await res.json();
-        setListas(listas.map(l => l.id === listaId ? { ...l, itens: [...(l.itens || []), itemSalvo] } : l));
-        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
+        // Substitui o ID temporário pelo oficial gerado pelo banco
+        setListas(prevListas => prevListas.map(l => {
+          if (l.id === listaId) {
+            return {
+              ...l,
+              itens: (l.itens || []).map(i => i.id === tempItemId ? itemSalvo : i)
+            };
+          }
+          return l;
+        }));
       }
     } catch (err) {
-      alert('Erro ao adicionar item.');
+      console.warn('Erro ao salvar item no banco, mantido na interface:', err);
     }
   };
 
@@ -391,7 +420,7 @@ export default function Home() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
-    });
+    }).catch(err => console.warn(err));
   };
 
   const atualizarQuantidadeDireta = async (listaId, itemId, valorInput) => {
@@ -411,12 +440,12 @@ export default function Home() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: qtdNum })
-    });
+    }).catch(err => console.warn(err));
   };
 
   const removerItem = async (listaId, itemId) => {
     setListas(listas.map(l => l.id === listaId ? { ...l, itens: (l.itens || []).filter(i => i.id !== itemId) } : l));
-    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
+    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' }).catch(err => console.warn(err));
   };
 
   const toggleCheck = async (listaId, itemId) => {
@@ -442,13 +471,13 @@ export default function Home() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
-    });
+    }).catch(err => console.warn(err));
   };
 
   const deletarLista = async (id) => {
     if (confirm('Deseja realmente excluir esta lista?')) {
       setListas(listas.filter(l => l.id !== id));
-      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
+      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' }).catch(err => console.warn(err));
     }
   };
 
@@ -1026,7 +1055,7 @@ export default function Home() {
                             placeholder="NOME DO ITEM..."
                             value={inputAtual.nome}
                             onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                            className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white"
+                            className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
                             required
                           />
                           <input
@@ -1034,9 +1063,9 @@ export default function Home() {
                             min="1"
                             value={inputAtual.qtd}
                             onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                            className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white"
+                            className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
                           />
-                          <button type="submit" className="bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+                          <button type="submit" className="bg-[#1877f2] hover:bg-[#1162cd] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
                             + Adicionar
                           </button>
                         </form>
@@ -1054,9 +1083,9 @@ export default function Home() {
                                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                     <input
                                       type="checkbox"
-                                      checked={item.marcado}
+                                      checked={Boolean(item.marcado)}
                                       onChange={() => toggleCheck(lista.id, item.id)}
-                                      className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 flex-shrink-0"
+                                      className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 flex-shrink-0 cursor-pointer"
                                     />
                                     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                       <span className={`text-xs font-bold truncate ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>

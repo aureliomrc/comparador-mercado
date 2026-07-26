@@ -28,15 +28,15 @@ export async function GET(request) {
     const listasFormatadas = listasBD.map(lista => ({
       id: lista.id,
       nome: lista.nome,
-      isPrincipal: lista.nome === 'LISTA DE COMPRAS PADRÃO',
-      itens: lista.itens.map(item => ({
+      isPrincipal: lista.nome.toUpperCase().includes('PADRÃO') || lista.nome.toUpperCase().includes('PADRAO'),
+      itens: (lista.itens || []).map(item => ({
         id: item.id,
-        nome: item.produtoNome.toUpperCase(),
-        qtd: item.qtd,
-        un: item.un,
-        marcado: item.marcado,
-        precoEstimado: item.precoEstimado,
-        marca: item.marca
+        nome: (item.produtoNome || '').toUpperCase(),
+        qtd: item.qtd || 1,
+        un: item.un || 'UN',
+        marcado: Boolean(item.marcado),
+        precoEstimado: item.precoEstimado || 0.0,
+        marca: item.marca || 'PADRÃO'
       }))
     }));
 
@@ -69,7 +69,7 @@ export async function POST(request) {
     return NextResponse.json({
       id: novaLista.id,
       nome: novaLista.nome,
-      isPrincipal: novaLista.nome === 'LISTA DE COMPRAS PADRÃO',
+      isPrincipal: novaLista.nome.toUpperCase().includes('PADRÃO') || novaLista.nome.toUpperCase().includes('PADRAO'),
       itens: []
     }, { status: 201 });
   } catch (error) {
@@ -88,13 +88,18 @@ export async function PUT(request) {
     if (acaoNorm === 'ADICIONAR_ITEM') {
       const { listaId, nome, qtd, precoEstimado, marca } = body;
 
+      if (!listaId || !nome) {
+        return NextResponse.json({ error: 'listaId e nome são obrigatórios' }, { status: 400 });
+      }
+
       const novoItem = await prisma.item.create({
         data: {
           listaId,
-          produtoNome: nome,
-          qtd: qtd || 1,
+          produtoNome: nome.toUpperCase(),
+          qtd: parseInt(qtd) || 1,
           precoEstimado: parseFloat(precoEstimado) || 0.0,
-          marca: marca || 'PADRÃO'
+          marca: marca || 'PADRÃO',
+          marcado: false
         }
       });
 
@@ -102,8 +107,8 @@ export async function PUT(request) {
         id: novoItem.id,
         nome: novoItem.produtoNome,
         qtd: novoItem.qtd,
-        un: novoItem.un,
-        marcado: novoItem.marcado,
+        un: novoItem.un || 'UN',
+        marcado: false,
         precoEstimado: novoItem.precoEstimado,
         marca: novoItem.marca
       });
@@ -115,8 +120,8 @@ export async function PUT(request) {
       const itemAtualizado = await prisma.item.update({
         where: { id: itemId },
         data: {
-          ...(qtd !== undefined && { qtd }),
-          ...(marcado !== undefined && { marcado })
+          ...(qtd !== undefined && { qtd: parseInt(qtd) }),
+          ...(marcado !== undefined && { marcado: Boolean(marcado) })
         }
       });
       return NextResponse.json(itemAtualizado);
