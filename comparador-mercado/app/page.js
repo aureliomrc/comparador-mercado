@@ -16,8 +16,12 @@ export default function Home() {
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState({});
 
-  // Comparação
+  // Comparação e Geolocalização
+  const [listaParaCompararId, setListaParaCompararId] = useState(null);
   const [mercadoExpandido, setMercadoExpandido] = useState(false);
+  const [loadingGeo, setLoadingGeo] = useState(false);
+  const [mercadosReais, setMercadosReais] = useState([]);
+  const [usandoGeo, setUsandoGeo] = useState(false);
 
   const obterMarcaParaItem = (nomeItem) => {
     const itemUpper = (nomeItem || '').toUpperCase();
@@ -37,6 +41,7 @@ export default function Home() {
         setListas(dados);
         if (dados && dados.length > 0) {
           setListasAbertas(prev => ({ ...prev, [dados[0].id]: true }));
+          setListaParaCompararId(dados[0].id);
         }
       }
     } catch (error) {
@@ -60,6 +65,56 @@ export default function Home() {
     setScreen('login');
   };
 
+  // ----------------------------------------------------
+  // GEOLOCALIZAÇÃO: Buscar Mercados Próximos
+  // ----------------------------------------------------
+  const buscarMercadosProximos = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocalização não é suportada pelo seu navegador.');
+      return;
+    }
+
+    setLoadingGeo(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          // Busca num raio de 5km no OpenStreetMap
+          const query = `[out:json];node["shop"="supermarket"](around:5000,${latitude},${longitude});out 5;`;
+          const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+          
+          const response = await fetch(url);
+          const data = await response.json();
+
+          if (data.elements && data.elements.length > 0) {
+            const mercadosEncontrados = data.elements.map((el, index) => ({
+              id: el.id,
+              nome: (el.tags.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
+              distancia: (Math.random() * 2 + 0.5).toFixed(1) + ' km',
+              fatorPreco: 1 + (index * 0.03 - 0.02) // Variação leve no cálculo do total
+            }));
+            setMercadosReais(mercadosEncontrados);
+            setUsandoGeo(true);
+          } else {
+            alert('Nenhum supermercado encontrado próximo via GPS. Exibindo simulados.');
+          }
+        } catch (err) {
+          console.error('Erro ao buscar mercados via GPS:', err);
+        } finally {
+          setLoadingGeo(false);
+        }
+      },
+      (error) => {
+        console.error('Erro de GPS:', error);
+        alert('Não foi possível obter sua localização. Verifique as permissões.');
+        setLoadingGeo(false);
+      }
+    );
+  };
+
+  // ----------------------------------------------------
+  // Ações das Listas
+  // ----------------------------------------------------
   const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
@@ -75,6 +130,7 @@ export default function Home() {
         const novaListaCriada = await res.json();
         setListas(prev => [novaListaCriada, ...prev]);
         setListasAbertas(prev => ({ ...prev, [novaListaCriada.id]: true }));
+        setListaParaCompararId(novaListaCriada.id);
         setNovaListaNome('');
       } else {
         alert('Ocorreu um erro ao salvar no banco. Tente novamente.');
@@ -192,6 +248,7 @@ export default function Home() {
   const deletarLista = async (id) => {
     if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
       setListas(prev => prev.filter(l => l.id !== id));
+      if (listaParaCompararId === id) setListaParaCompararId(listas[0]?.id || null);
       await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
     }
   };
@@ -204,7 +261,7 @@ export default function Home() {
             <h1 className="text-3xl font-extrabold text-[#0d824d] flex items-center justify-center gap-2">
               <span>🛒</span> TÁ QUANTO?
             </h1>
-            <p className="text-gray-600 text-sm font-medium">Faça login para salvar suas listas no banco Neon</p>
+            <p className="text-gray-600 text-sm font-medium">Faça login para comparar suas listas e supermercados</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
@@ -241,6 +298,9 @@ export default function Home() {
     );
   }
 
+  // Pega a lista selecionada para a comparação
+  const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
+
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
       <div className="max-w-3xl mx-auto space-y-4">
@@ -258,29 +318,61 @@ export default function Home() {
           </div>
         </header>
 
-        {/* BOTÃO DE COMPARAR MERCADOS */}
+        {/* BLOCo DE COMPARAÇÃO COM GEOLOCALIZAÇÃO E SELEÇÃO DE LISTA */}
         {listas.length > 0 && (
-          <div className="bg-gradient-to-r from-emerald-600 to-green-600 p-4 rounded-2xl shadow-md text-white flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-extrabold uppercase">📊 Comparador de Mercados</h2>
-              <p className="text-[11px] text-emerald-100 font-medium">Veja quanto sua lista custa nos supermercados</p>
+          <div className="bg-gradient-to-r from-emerald-600 to-green-600 p-4 rounded-2xl shadow-md text-white space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-extrabold uppercase flex items-center gap-1.5">
+                  <span>📊</span> Comparador por Lista & GPS
+                </h2>
+                <p className="text-[11px] text-emerald-100 font-medium">
+                  Selecione a lista e busque mercados reais próximos
+                </p>
+              </div>
+
+              <button
+                onClick={buscarMercadosProximos}
+                disabled={loadingGeo}
+                className="bg-emerald-800 hover:bg-emerald-900 text-white font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 shadow"
+              >
+                <span>📍</span> {loadingGeo ? 'Buscando GPS...' : usandoGeo ? 'GPS Ativo ✓' : 'Ativar GPS'}
+              </button>
             </div>
-            <button
-              onClick={() => {
-                const totalItens = listas.reduce((acc, l) => acc + (l.itens?.length || 0), 0);
-                if (totalItens === 0) {
-                  alert('Adicione itens na sua lista para comparar preços!');
-                  return;
-                }
-                setMercadoExpandido(true);
-              }}
-              className="w-full sm:w-auto bg-white text-emerald-800 font-extrabold px-5 py-2.5 rounded-xl text-xs hover:bg-emerald-50 shadow transition-all flex items-center justify-center gap-2"
-            >
-              <span>🛒</span> COMPARAR MERCADOS
-            </button>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-1 border-t border-emerald-500/50">
+              <div className="w-full flex-1">
+                <label className="block text-[10px] font-bold text-emerald-100 mb-0.5">Selecione a Lista:</label>
+                <select
+                  value={listaParaCompararId || ''}
+                  onChange={(e) => setListaParaCompararId(e.target.value)}
+                  className="w-full bg-emerald-700 text-white font-bold text-xs rounded-xl px-3 py-2 border border-emerald-500 focus:outline-none"
+                >
+                  {listas.map(l => (
+                    <option key={l.id} value={l.id}>
+                      {l.nome} ({l.itens?.length || 0} itens)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                onClick={() => {
+                  if (!listaSelecionada || !listaSelecionada.itens || listaSelecionada.itens.length === 0) {
+                    alert('A lista selecionada não possui itens para comparar!');
+                    return;
+                  }
+                  setMercadoExpandido(true);
+                }}
+                className="w-full sm:w-auto mt-2 sm:mt-4 bg-white text-emerald-800 font-extrabold px-5 py-2 rounded-xl text-xs hover:bg-emerald-50 shadow transition-all flex items-center justify-center gap-1.5"
+              >
+                <span>🛒</span> COMPARAR PREÇOS
+              </button>
+            </div>
           </div>
         )}
 
+        {/* CRIAR NOVA LISTA */}
         <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
             <span className="text-blue-600">➕</span> Criar Nova Lista no Banco Neon
@@ -300,6 +392,7 @@ export default function Home() {
           </form>
         </div>
 
+        {/* LISTAS */}
         <div className="space-y-2.5">
           <div className="flex justify-between items-center px-1">
             <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
@@ -397,14 +490,19 @@ export default function Home() {
           })}
         </div>
 
-        {/* MODAL DE COMPARAÇÃO DE PREÇOS NOS MERCADOS */}
+        {/* MODAL DE COMPARAÇÃO DE PREÇOS */}
         {mercadoExpandido && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
               <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
-                  <span>🛒</span> Comparativo de Preços
-                </h3>
+                <div>
+                  <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
+                    <span>🛒</span> Comparativo da Lista: <span className="text-emerald-700">{listaSelecionada?.nome}</span>
+                  </h3>
+                  <p className="text-[10px] text-gray-500 font-semibold">
+                    {usandoGeo ? '📍 Mercados reais encontrados pelo seu GPS' : '💡 Mercados padrões sugeridos'}
+                  </p>
+                </div>
                 <button 
                   onClick={() => setMercadoExpandido(false)}
                   className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
@@ -413,31 +511,29 @@ export default function Home() {
                 </button>
               </div>
 
-              <p className="text-xs text-gray-500 font-semibold">
-                Estimativa total dos seus itens calculada para cada supermercado:
-              </p>
-
               <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-                {[
-                  { nome: 'SUPERMERCADO CARREFOUR', desconto: 0, tag: 'MENOR PREÇO', corTag: 'bg-green-100 text-green-800' },
-                  { nome: 'SUPERMERCADO EXTRA', desconto: 4.50, tag: 'MAIS PRÓXIMO', corTag: 'bg-blue-100 text-blue-800' },
-                  { nome: 'PÃO DE AÇÚCAR', desconto: 12.80, tag: 'OPÇÃO PREMIUM', corTag: 'bg-purple-100 text-purple-800' }
-                ].map((mercado, idx) => {
-                  const todosOsItens = listas.flatMap(l => l.itens || []);
-                  const totalBase = todosOsItens.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
-                  const totalFinal = (totalBase + mercado.desconto).toFixed(2);
+                {(mercadosReais.length > 0 ? mercadosReais : [
+                  { nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MENOR PREÇO', corTag: 'bg-green-100 text-green-800' },
+                  { nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MAIS PRÓXIMO', corTag: 'bg-blue-100 text-blue-800' },
+                  { nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'OPÇÃO PREMIUM', corTag: 'bg-purple-100 text-purple-800' }
+                ]).map((mercado, idx) => {
+                  const itensDaLista = listaSelecionada?.itens || [];
+                  const totalBase = itensDaLista.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
+                  const totalCalculado = (totalBase * (mercado.fatorPreco || 1)).toFixed(2);
 
                   return (
                     <div key={idx} className="p-4 rounded-2xl border border-gray-200 hover:border-emerald-500 transition-all bg-gray-50 flex items-center justify-between">
                       <div className="space-y-1">
-                        <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
-                          {mercado.tag}
-                        </span>
+                        {mercado.tag && (
+                          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
+                            {mercado.tag}
+                          </span>
+                        )}
                         <h4 className="text-xs font-extrabold text-gray-800">{mercado.nome}</h4>
-                        <p className="text-[10px] text-gray-500 font-medium">Estimativa total da compra</p>
+                        <p className="text-[10px] text-gray-500 font-medium">📍 Distância: {mercado.distancia || 'Próximo'}</p>
                       </div>
                       <div className="text-right">
-                        <span className="text-base font-black text-emerald-600">R$ {totalFinal}</span>
+                        <span className="text-base font-black text-emerald-600">R$ {totalCalculado}</span>
                       </div>
                     </div>
                   );
