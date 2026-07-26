@@ -2,29 +2,63 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { jwtVerify } from 'jose';
 
+// Função para identificar o usuário conectado via Cookie/JWT
 async function getUser(request) {
   const token = request.cookies.get('token')?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(process.env.JWT_SECRET || 'secreto'));
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'secreto');
+    const { payload } = await jwtVerify(token, secret);
     return payload;
   } catch {
     return null;
   }
 }
 
-// 1. LISTAR TODAS AS LISTAS DO USUÁRIO
+// Dados iniciais para quando a lista padrão precisa ser gerada
+const ITENS_PADRAO_INICIAIS = [
+  { produtoNome: 'ARROZ 5KG', qtd: 1, precoEstimado: 25.90, marca: 'CAMIL' },
+  { produtoNome: 'FEIJAO CARIOCA 1KG', qtd: 2, precoEstimado: 7.50, marca: 'KICALDO' },
+  { produtoNome: 'LEITE INTEGRAL 1L', qtd: 4, precoEstimado: 4.80, marca: 'NINHO' },
+  { produtoNome: 'CAFÉ TORRADO 500G', qtd: 1, precoEstimado: 16.90, marca: 'PILÃO' }
+];
+
+// 1. LISTAR TODAS AS LISTAS DO USUÁRIO (E CRIAR PADRÃO NO BANCO SE NÃO EXISTIR)
 export async function GET(request) {
   try {
     const user = await getUser(request);
+    const whereCondition = user?.userId ? { usuarioId: user.userId } : {};
 
-    // Busca listas vinculadas ao usuário ou públicas/globais caso não haja token
-    const listasBD = await prisma.lista.findMany({
-      where: user ? { usuarioId: user.userId } : {},
+    // Busca todas as listas salvas no banco
+    let listasBD = await prisma.lista.findMany({
+      where: whereCondition,
       include: { itens: true },
       orderBy: { createdAt: 'desc' }
     });
 
+    // Verifica se já existe uma Lista Padrão no banco de dados
+    const temPadrao = listasBD.some(l => 
+      (l.nome || '').toUpperCase().includes('PADRÃO') || 
+      (l.nome || '').toUpperCase().includes('PADRAO')
+    );
+
+    // Se não existir, cria a Lista Padrão DIRETO NO BANCO DE DADOS
+    if (!temPadrao) {
+      const novaListaPadrao = await prisma.lista.create({
+        data: {
+          nome: 'LISTA DE COMPRAS PADRÃO',
+          ...(user?.userId && { usuarioId: user.userId }),
+          itens: {
+            create: ITENS_PADRAO_INICIAIS
+          }
+        },
+        include: { itens: true }
+      });
+
+      listasBD.unshift(novaListaPadrao);
+    }
+
+    // Formata o retorno para o padrão esperado do React
     const listasFormatadas = listasBD.map(lista => ({
       id: lista.id,
       nome: lista.nome,
@@ -43,11 +77,11 @@ export async function GET(request) {
     return NextResponse.json(listasFormatadas);
   } catch (error) {
     console.error('Erro no GET /api/listas:', error);
-    return NextResponse.json([], { status: 200 });
+    return NextResponse.json({ error: 'Erro ao carregar listas do banco' }, { status: 500 });
   }
 }
 
-// 2. CRIAR NOVA LISTA
+// 2. CRIAR NOVA LISTA NO BANCO DE DADOS
 export async function POST(request) {
   try {
     const user = await getUser(request);
@@ -74,17 +108,17 @@ export async function POST(request) {
     }, { status: 201 });
   } catch (error) {
     console.error('Erro no POST /api/listas:', error);
-    return NextResponse.json({ error: 'Erro interno ao criar lista' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao criar lista no banco' }, { status: 500 });
   }
 }
 
-// 3. ADICIONAR ITEM / ATUALIZAR QUANTIDADE OU CHECK
+// 3. ADICIONAR ITEM / ATUALIZAR QUANTIDADE OU CHECK NO BANCO
 export async function PUT(request) {
   try {
     const body = await request.json();
     const acaoNorm = body.acao || body.ação;
 
-    // Ação: Adicionar Item a uma Lista
+    // Adicionar Item a uma Lista
     if (acaoNorm === 'ADICIONAR_ITEM') {
       const { listaId, nome, qtd, precoEstimado, marca } = body;
 
@@ -114,9 +148,14 @@ export async function PUT(request) {
       });
     }
 
-    // Ação: Alterar Quantidade ou Check
+    // Atualizar Quantidade ou Check
     if (acaoNorm === 'ATUALIZAR_ITEM') {
       const { itemId, qtd, marcado } = body;
+
+      if (!itemId) {
+        return NextResponse.json({ error: 'itemId é obrigatório' }, { status: 400 });
+      }
+
       const itemAtualizado = await prisma.item.update({
         where: { id: itemId },
         data: {
@@ -130,11 +169,11 @@ export async function PUT(request) {
     return NextResponse.json({ error: 'Ação não reconhecida' }, { status: 400 });
   } catch (error) {
     console.error('Erro no PUT /api/listas:', error);
-    return NextResponse.json({ error: 'Erro ao processar alteração' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao processar alteração no banco' }, { status: 500 });
   }
 }
 
-// 4. DELETAR LISTA OU ITEM
+// 4. DELETAR LISTA OU ITEM NO BANCO
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -154,6 +193,6 @@ export async function DELETE(request) {
     return NextResponse.json({ error: 'Parâmetro ausente' }, { status: 400 });
   } catch (error) {
     console.error('Erro no DELETE /api/listas:', error);
-    return NextResponse.json({ error: 'Erro ao deletar recurso' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao deletar recurso no banco' }, { status: 500 });
   }
 }
