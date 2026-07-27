@@ -25,7 +25,7 @@ export default function Home() {
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  // Modais de QR Code / Cupom Fiscal com Leitor Real
+  // Modais de QR Code / Cupom Fiscal
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
@@ -80,12 +80,11 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // LEITOR DE QR CODE EM TEMPO REAL (HTML5-QRCODE)
+  // LEITOR DE QR CODE EM TEMPO REAL
   // ----------------------------------------------------
   const iniciarScanner = async () => {
     setCameraError('');
     try {
-      // Garante limpeza de instâncias anteriores
       if (qrScannerRef.current) {
         await pararScanner();
       }
@@ -96,17 +95,14 @@ export default function Home() {
       const config = { fps: 10, qrbox: { width: 220, height: 220 } };
 
       await html5QrCode.start(
-        { facingMode: "environment" }, // Prioriza câmera traseira do celular
+        { facingMode: "environment" },
         config,
         (decodedText) => {
-          // QUANDO O QR CODE É LIDO COM SUCESSO:
           setQrUrlInput(decodedText);
           pararScanner();
-          alert(`✅ QR Code lido com sucesso!\n\nDados: ${decodedText}`);
+          alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
         },
-        (errorMessage) => {
-          // Falhas normais de busca por frame (ignorar)
-        }
+        () => {}
       );
     } catch (err) {
       console.error('Erro ao iniciar câmera:', err);
@@ -137,10 +133,8 @@ export default function Home() {
     setShowQrModal(false);
   };
 
-  // Inicia o scanner assim que o modal de QR é exibido na tela
   useEffect(() => {
     if (showQrModal) {
-      // Pequeno timeout para garantir que a div #reader já existe no DOM
       const timer = setTimeout(() => {
         iniciarScanner();
       }, 300);
@@ -197,29 +191,38 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // PROCESSAR CUPOM FISCAL
+  // PROCESSAR E GERENCIAR CUPONS
   // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
     if (!qrUrlInput.trim() && !nomeFantasiaInput.trim()) {
-      return alert('Preencha os dados do QR Code ou o Nome Fantasia do estabelecimento!');
+      return alert('Preencha os dados do QR Code ou o Nome do Estabelecimento!');
     }
 
-    const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO PROCESSADO VIA QR CODE';
+    const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
+    const valorSimulado = (Math.random() * 60 + 30).toFixed(2);
 
     const novoCupom = {
       id: Date.now(),
       data: new Date().toLocaleDateString('pt-BR'),
       mercado: nomeEstabelecimento,
-      valorTotal: (Math.random() * 80 + 20).toFixed(2),
-      url: qrUrlInput
+      valorTotal: valorSimulado,
+      fatorPreco: (0.85 + Math.random() * 0.25).toFixed(2), // Variação do cupom bipado
+      url: qrUrlInput,
+      tag: '🧾 CUPOM BIPADO',
+      corTag: 'bg-purple-100 text-purple-800'
     };
 
     setHistoricoCupons(prev => [novoCupom, ...prev]);
     setQrUrlInput('');
     setNomeFantasiaInput('');
     fecharModalQr();
-    alert(`Cupom do "${nomeEstabelecimento}" registrado com sucesso! Total estimado: R$ ${novoCupom.valorTotal}`);
+  };
+
+  const excluirCupom = (id) => {
+    if (confirm('Deseja excluir este cupom bipado da comparação?')) {
+      setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+    }
   };
 
   // ----------------------------------------------------
@@ -410,11 +413,25 @@ export default function Home() {
 
   const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
 
-  const listaMercadosParaExibir = mercadosReais.length > 0 ? mercadosReais : [
+  const baseMercados = mercadosReais.length > 0 ? mercadosReais : [
     { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MENOR PREÇO', corTag: 'bg-green-100 text-green-800' },
     { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MAIS PRÓXIMO', corTag: 'bg-blue-100 text-blue-800' },
     { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'OPÇÃO PREMIUM', corTag: 'bg-purple-100 text-purple-800' }
   ];
+
+  // Agrupa os mercados normais com os cupons bipados para a comparação
+  const cuponsFormatadosParaMercado = historicoCupons.map(c => ({
+    id: `cupom_${c.id}`,
+    idOriginalCupom: c.id,
+    nome: c.mercado,
+    distancia: `Bipado em ${c.data}`,
+    fatorPreco: c.fatorPreco || 0.95,
+    tag: c.tag,
+    corTag: c.corTag,
+    isCupom: true
+  }));
+
+  const listaMercadosParaExibir = [...cuponsFormatadosParaMercado, ...baseMercados];
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
@@ -471,26 +488,6 @@ export default function Home() {
             </button>
           </form>
         </div>
-
-        {/* HISTÓRICO DE CUPONS */}
-        {historicoCupons.length > 0 && (
-          <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3.5 space-y-2">
-            <h3 className="text-xs font-extrabold text-purple-900 flex items-center gap-1.5">
-              <span>🧾</span> Cupons Registrados ({historicoCupons.length})
-            </h3>
-            <div className="divide-y divide-purple-100">
-              {historicoCupons.map(cupom => (
-                <div key={cupom.id} className="py-2 flex justify-between items-center text-xs">
-                  <div>
-                    <span className="font-bold text-purple-900">{cupom.mercado}</span>
-                    <span className="text-[10px] text-purple-600 block">{cupom.data}</span>
-                  </div>
-                  <span className="font-extrabold text-purple-800">R$ {cupom.valorTotal}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* LISTAS */}
         <div className="space-y-2.5">
@@ -655,6 +652,7 @@ export default function Home() {
                 </button>
               </div>
 
+              {/* LISTAGEM DOS MERCADOS E CUPONS NA TELA DE COMPARAÇÃO */}
               <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                 {listaMercadosParaExibir.map((mercado, idx) => {
                   const itensDaLista = listaSelecionada?.itens || [];
@@ -666,13 +664,13 @@ export default function Home() {
                   return (
                     <div 
                       key={mercado.id || idx} 
-                      className={`rounded-2xl border transition-all bg-gray-50 overflow-hidden ${estaAbertoDetalhe ? 'border-emerald-500 shadow-md ring-2 ring-emerald-500/20' : 'border-gray-200 hover:border-emerald-400'}`}
+                      className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-gray-50 border-gray-200'} ${estaAbertoDetalhe ? 'border-emerald-500 shadow-md ring-2 ring-emerald-500/20' : 'hover:border-emerald-400'}`}
                     >
-                      <div 
-                        onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
-                        className="p-4 flex items-center justify-between cursor-pointer select-none"
-                      >
-                        <div className="space-y-1">
+                      <div className="p-4 flex items-center justify-between">
+                        <div 
+                          onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
+                          className="space-y-1 flex-1 cursor-pointer select-none"
+                        >
                           {mercado.tag && (
                             <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
                               {mercado.tag}
@@ -682,11 +680,25 @@ export default function Home() {
                             {mercado.nome}
                             <span className="text-[10px] text-emerald-600 font-bold">{estaAbertoDetalhe ? '▲ Ver menos' : '▼ Clique p/ ver itens'}</span>
                           </h4>
-                          <p className="text-[10px] text-gray-500 font-medium">📍 Distância: {mercado.distancia || 'Próximo'}</p>
+                          <p className="text-[10px] text-gray-500 font-medium">{mercado.distancia}</p>
                         </div>
-                        <div className="text-right">
-                          <span className="text-base font-black text-emerald-600 block">R$ {totalCalculado}</span>
-                          <span className="text-[9px] text-gray-400 font-bold">{itensDaLista.length} itens</span>
+
+                        <div className="text-right flex items-center gap-3">
+                          <div>
+                            <span className="text-base font-black text-emerald-600 block">R$ {totalCalculado}</span>
+                            <span className="text-[9px] text-gray-400 font-bold">{itensDaLista.length} itens</span>
+                          </div>
+
+                          {/* BOTAO DE EXCLUIR CUPOM BIPADO */}
+                          {mercado.isCupom && (
+                            <button
+                              onClick={() => excluirCupom(mercado.idOriginalCupom)}
+                              title="Excluir Cupom"
+                              className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg text-xs font-bold transition-all border border-red-200"
+                            >
+                              🗑️
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -739,7 +751,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* MODAL DO LEITOR DE QR CODE REAL */}
+        {/* MODAL DO LEITOR DE QR CODE */}
         {showQrModal && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
             <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
@@ -755,7 +767,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* CONTAINER DA CÂMERA E SCANNER */}
               <div className="bg-black rounded-2xl overflow-hidden min-h-[220px] flex items-center justify-center relative">
                 {cameraError ? (
                   <p className="text-xs font-bold text-red-400 p-4 text-center">{cameraError}</p>
@@ -771,7 +782,7 @@ export default function Home() {
                   </label>
                   <input
                     type="text"
-                    placeholder="Ex: Supermercado Silva, Carrefour..."
+                    placeholder="Ex: Mercado do Zé, Carrefour..."
                     value={nomeFantasiaInput}
                     onChange={(e) => setNomeFantasiaInput(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
@@ -803,7 +814,7 @@ export default function Home() {
                     type="submit"
                     className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
                   >
-                    Salvar Cupom
+                    Salvar Cupom na Comparação
                   </button>
                 </div>
               </form>
