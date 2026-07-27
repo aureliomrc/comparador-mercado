@@ -13,7 +13,7 @@ export default function Home() {
 
   // Listas de Compras
   const [listas, setListas] = useState([]);
-  const [listasAbertas, setListasAbertas] = useState({}); // Inicializa tudo fechado
+  const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState({});
 
@@ -25,8 +25,9 @@ export default function Home() {
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  // Modais de QR Code / Cupom Fiscal
+  // Modais de QR Code / Cupom Fiscal / Histórico
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showHistoricoModal, setShowHistoricoModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [historicoCupons, setHistoricoCupons] = useState([]);
@@ -52,7 +53,6 @@ export default function Home() {
       if (res.ok) {
         const dados = await res.json();
         setListas(dados);
-        // Deixamos listasAbertas vazio {} para manter todas as listas recolhidas/fechadas por padrão
         if (dados && dados.length > 0) {
           setListaParaCompararId(dados[0].id);
         }
@@ -204,8 +204,9 @@ export default function Home() {
     const novoCupom = {
       id: Date.now(),
       data: new Date().toLocaleDateString('pt-BR'),
+      hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       mercado: nomeEstabelecimento,
-      fatorPreco: (0.85 + Math.random() * 0.25), // Fator de preço variante
+      fatorPreco: (0.85 + Math.random() * 0.25),
       url: qrUrlInput,
       tag: '🧾 CUPOM BIPADO',
       corTag: 'bg-purple-100 text-purple-800'
@@ -218,7 +219,7 @@ export default function Home() {
   };
 
   const excluirCupom = (id) => {
-    if (confirm('Deseja excluir este cupom bipado da comparação?')) {
+    if (confirm('Deseja excluir este cupom bipado do histórico e da comparação?')) {
       setHistoricoCupons(prev => prev.filter(c => c.id !== id));
     }
   };
@@ -420,28 +421,26 @@ export default function Home() {
     id: `cupom_${c.id}`,
     idOriginalCupom: c.id,
     nome: c.mercado,
-    distancia: `Bipado em ${c.data}`,
+    distancia: `Bipado em ${c.data} às ${c.hora}`,
     fatorPreco: c.fatorPreco || 0.95,
     tag: c.tag,
     corTag: c.corTag,
     isCupom: true
   }));
 
-  // Unifica todos os itens
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
 
-  // Cálculo do total de itens para ordenação
   const itensDaListaAtiva = listaSelecionada?.itens || [];
   const totalBase = itensDaListaAtiva.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
 
-  // Ordena do MAIS BARATO para o MAIS CARO independente de ser cupom ou mercado
+  // Ranking ordenado do mais barato ao mais caro
   const listaMercadosOrdenados = [...todosMercadosECupons].map(item => {
     const totalCalculado = Number((totalBase * (item.fatorPreco || 1)).toFixed(2));
     return { ...item, totalCalculado };
   }).sort((a, b) => a.totalCalculado - b.totalCalculado);
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
+    <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans relative pb-20">
       <div className="max-w-3xl mx-auto space-y-4">
         {/* CABEÇALHO */}
         <header className="flex justify-between items-center bg-white px-4 py-3 rounded-2xl shadow-sm border">
@@ -496,7 +495,7 @@ export default function Home() {
           </form>
         </div>
 
-        {/* LISTAS */}
+        {/* LISTAS RECOLHIDAS */}
         <div className="space-y-2.5">
           <div className="flex justify-between items-center px-1">
             <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
@@ -604,14 +603,14 @@ export default function Home() {
           })}
         </div>
 
-        {/* MODAL DE COMPARAÇÃO */}
+        {/* MODAL DE COMPARAÇÃO COM EXIBIÇÃO CLARA DOS VALORES NO RANKING */}
         {mercadoExpandido && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
               <div className="flex justify-between items-center border-b pb-3">
                 <div>
                   <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
-                    <span>🛒</span> Comparativo de Preços
+                    <span>🛒</span> Ranking Comparativo de Preços
                   </h3>
                   <p className="text-[10px] text-gray-500 font-semibold">
                     Lista ativa: <span className="text-emerald-700 font-bold">{listaSelecionada?.nome}</span>
@@ -659,7 +658,7 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* LISTAGEM DOS MERCADOS E CUPONS ORDENADOS DO MAIS BARATO PRO MAIS CARO */}
+              {/* LISTAGEM DOS MERCADOS NO RANKING */}
               <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                 {listaMercadosOrdenados.map((mercado, idx) => {
                   const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
@@ -676,6 +675,9 @@ export default function Home() {
                           className="space-y-1 flex-1 cursor-pointer select-none"
                         >
                           <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-black bg-gray-800 text-white px-2 py-0.5 rounded-full">
+                              #{idx + 1}º
+                            </span>
                             {eOMaisBarato && (
                               <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
                                 🥇 MENOR PREÇO
@@ -694,17 +696,18 @@ export default function Home() {
                           <p className="text-[10px] text-gray-500 font-medium">{mercado.distancia}</p>
                         </div>
 
+                        {/* EXIBIÇÃO DO VALOR TOTAL DO MERCADO/CUPOM */}
                         <div className="text-right flex items-center gap-3">
-                          <div>
+                          <div className="bg-white px-3 py-1.5 rounded-xl border border-emerald-200 shadow-sm">
+                            <span className="text-[9px] text-gray-400 font-bold block uppercase">Valor Total</span>
                             <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
-                            <span className="text-[9px] text-gray-400 font-bold">{itensDaListaAtiva.length} itens</span>
                           </div>
 
                           {mercado.isCupom && (
                             <button
                               onClick={() => excluirCupom(mercado.idOriginalCupom)}
                               title="Excluir Cupom"
-                              className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg text-xs font-bold transition-all border border-red-200"
+                              className="text-red-500 hover:bg-red-100 p-2 rounded-xl text-xs font-bold transition-all border border-red-200"
                             >
                               🗑️
                             </button>
@@ -818,6 +821,71 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* MODAL DE HISTÓRICO DE CUPONS BIPADOS */}
+        {showHistoricoModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
+                  <span>📜</span> Histórico de Cupons Bipados
+                </h3>
+                <button 
+                  onClick={() => setShowHistoricoModal(false)}
+                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {historicoCupons.length === 0 ? (
+                <div className="py-8 text-center space-y-2">
+                  <span className="text-3xl">🧾</span>
+                  <p className="text-xs font-bold text-gray-500">Nenhum cupom bipado ainda.</p>
+                  <p className="text-[10px] text-gray-400">Escaneie um QR Code para ver seus cupons salvos aqui.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                  {historicoCupons.map((cupom) => (
+                    <div 
+                      key={cupom.id} 
+                      className="bg-purple-50/70 border border-purple-200 rounded-2xl p-3.5 flex justify-between items-center"
+                    >
+                      <div>
+                        <h4 className="text-xs font-extrabold text-purple-950">{cupom.mercado}</h4>
+                        <p className="text-[10px] text-purple-700 font-medium">
+                          📅 {cupom.data} às {cupom.hora}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => excluirCupom(cupom.id)}
+                        className="bg-white text-red-500 hover:bg-red-50 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all"
+                      >
+                        🗑️ Excluir
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowHistoricoModal(false)}
+                className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow"
+              >
+                Fechar Histórico
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* BOTÃO FLUTUANTE DE HISTÓRICO NO CANTO INFERIOR DIREITO */}
+        <button
+          onClick={() => setShowHistoricoModal(true)}
+          className="fixed bottom-5 right-5 bg-purple-700 hover:bg-purple-800 text-white font-extrabold text-xs px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 z-40 transition-all transform hover:scale-105 border-2 border-purple-300"
+        >
+          <span>📜</span> Histórico ({historicoCupons.length})
+        </button>
 
       </div>
     </div>
