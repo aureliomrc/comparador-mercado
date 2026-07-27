@@ -4,100 +4,405 @@ import { Html5Qrcode } from 'html5-qrcode';
 
 export default function Home() {
   const [screen, setScreen] = useState('login');
-  const [activeTab, setActiveTab] = useState('listas'); // 'listas' | 'comparar' | 'historico'
   const [isLogged, setIsLogged] = useState(false);
+  const [loadingListas, setLoadingListas] = useState(false);
+  const [activeTab, setActiveTab] = useState('listas'); // 'listas' | 'comparar' | 'cupons'
 
-  // Estados dos dados
+  // Autenticação
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
-  const [listas, setListas] = useState([]);
-  const [listaSelecionadaId, setListaSelecionadaId] = useState(null);
-  const [novaListaNome, setNovaListaNome] = useState('');
-  const [novoItemNome, setNovoItemNome] = useState('');
-  const [novoItemQtd, setNovoItemQtd] = useState(1);
-  const [historicoCupons, setHistoricoCupons] = useState([]);
 
-  // Modais leves apenas para Leitor QR
+  // Listas de Compras
+  const [listas, setListas] = useState([]);
+  const [listasAbertas, setListasAbertas] = useState({});
+  const [novaListaNome, setNovaListaNome] = useState('');
+  const [inputsItens, setInputsItens] = useState({});
+
+  // Comparação e Geolocalização
+  const [listaParaCompararId, setListaParaCompararId] = useState(null);
+  const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
+  const [loadingGeo, setLoadingGeo] = useState(false);
+  const [mercadosReais, setMercadosReais] = useState([]);
+  const [usandoGeo, setUsandoGeo] = useState(false);
+
+  // Modais de QR Code / Cupom Fiscal / Histórico
   const [showQrModal, setShowQrModal] = useState(false);
+  const [qrUrlInput, setQrUrlInput] = useState('');
+  const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
+  const [historicoCupons, setHistoricoCupons] = useState([]);
+  const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef(null);
 
+  // Inteligência SEFAZ para identificar Marca Padrão
   const obterMarcaParaItem = (nomeItem) => {
     const itemUpper = (nomeItem || '').toUpperCase();
     if (itemUpper.includes('ARROZ')) return 'CAMIL';
     if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
     if (itemUpper.includes('LEITE')) return 'NINHO';
     if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
+    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
+    if (itemUpper.includes('OLEO') || itemUpper.includes('ÓLEO')) return 'LIZA';
     return 'MARCA SEFAZ';
   };
 
-  const handleLogin = (e) => {
+  const carregarListasDoBanco = async () => {
+    setLoadingListas(true);
+    try {
+      const res = await fetch('/api/listas', { cache: 'no-store' });
+      if (res.ok) {
+        const dados = await res.json();
+        setListas(dados);
+        if (dados && dados.length > 0 && !listaParaCompararId) {
+          setListaParaCompararId(dados[0].id);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao conectar com o banco:', error);
+    } finally {
+      setLoadingListas(false);
+    }
+  };
+
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (!usuario.trim()) return;
+    if (!usuario.trim()) return alert('Digite seu usuário');
     setIsLogged(true);
     setScreen('dashboard');
+    await carregarListasDoBanco();
   };
 
-  const criarNovaLista = (e) => {
+  const handleLogout = () => {
+    pararScanner();
+    setIsLogged(false);
+    setListas([]);
+    setScreen('login');
+  };
+
+  // ----------------------------------------------------
+  // LEITOR DE QR CODE EM TEMPO REAL
+  // ----------------------------------------------------
+  const iniciarScanner = async () => {
+    setCameraError('');
+    try {
+      if (qrScannerRef.current) {
+        await pararScanner();
+      }
+
+      const html5QrCode = new Html5Qrcode("reader");
+      qrScannerRef.current = html5QrCode;
+
+      const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => {
+          setQrUrlInput(decodedText);
+          pararScanner();
+          alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
+        },
+        () => {}
+      );
+    } catch (err) {
+      console.error('Erro ao iniciar câmera:', err);
+      setCameraError('Não foi possível abrir a câmera. Permita o acesso ou digite os dados abaixo.');
+    }
+  };
+
+  const pararScanner = async () => {
+    if (qrScannerRef.current) {
+      try {
+        if (qrScannerRef.current.isScanning) {
+          await qrScannerRef.current.stop();
+        }
+        qrScannerRef.current.clear();
+      } catch (err) {
+        console.error("Erro ao parar scanner:", err);
+      }
+      qrScannerRef.current = null;
+    }
+  };
+
+  const abrirModalQr = () => {
+    setShowQrModal(true);
+  };
+
+  const fecharModalQr = () => {
+    pararScanner();
+    setShowQrModal(false);
+  };
+
+  useEffect(() => {
+    if (showQrModal) {
+      const timer = setTimeout(() => {
+        iniciarScanner();
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      pararScanner();
+    }
+  }, [showQrModal]);
+
+  // ----------------------------------------------------
+  // GEOLOCALIZAÇÃO: Buscar Mercados Próximos
+  // ----------------------------------------------------
+  const buscarMercadosProximos = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocalização não é suportada pelo seu navegador.');
+      return;
+    }
+
+    setLoadingGeo(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const query = `[out:json];node["shop"="supermarket"](around:5000,${latitude},${longitude});out 5;`;
+          const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+          
+          const response = await fetch(url);
+          const data = await response.json();
+
+          if (data.elements && data.elements.length > 0) {
+            const mercadosEncontrados = data.elements.map((el, index) => ({
+              id: el.id || index,
+              nome: (el.tags.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
+              distancia: (Math.random() * 2 + 0.5).toFixed(1) + ' km',
+              fatorPreco: 1 + (index * 0.03 - 0.02)
+            }));
+            setMercadosReais(mercadosEncontrados);
+            setUsandoGeo(true);
+          } else {
+            alert('Nenhum supermercado encontrado próximo via GPS. Exibindo simulados.');
+          }
+        } catch (err) {
+          console.error('Erro ao buscar mercados via GPS:', err);
+        } finally {
+          setLoadingGeo(false);
+        }
+      },
+      (error) => {
+        console.error('Erro de GPS:', error);
+        alert('Não foi possível obter sua localização. Verifique as permissões.');
+        setLoadingGeo(false);
+      }
+    );
+  };
+
+  // ----------------------------------------------------
+  // PROCESSAR E GERENCIAR CUPONS
+  // ----------------------------------------------------
+  const processarCupomQrCode = async (e) => {
+    e.preventDefault();
+    if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
+      return alert('Preencha o nome do estabelecimento ou escaneie o QR Code!');
+    }
+
+    const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
+
+    const novoCupom = {
+      id: Date.now(),
+      data: new Date().toLocaleDateString('pt-BR'),
+      hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      mercado: nomeEstabelecimento,
+      fatorPreco: (0.85 + Math.random() * 0.25),
+      url: qrUrlInput,
+      tag: '🧾 CUPOM BIPADO',
+      corTag: 'bg-purple-100 text-purple-800'
+    };
+
+    setHistoricoCupons(prev => [novoCupom, ...prev]);
+    setQrUrlInput('');
+    setNomeFantasiaInput('');
+    fecharModalQr();
+  };
+
+  const excluirCupom = (id) => {
+    if (confirm('Deseja excluir este cupom bipado do histórico e da comparação?')) {
+      setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+    }
+  };
+
+  // ----------------------------------------------------
+  // Ações das Listas
+  // ----------------------------------------------------
+  const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
-    const nova = { id: Date.now(), nome: novaListaNome.toUpperCase(), itens: [] };
-    setListas([nova, ...listas]);
-    setListaSelecionadaId(nova.id);
-    setNovaListaNome('');
+
+    try {
+      const res = await fetch('/api/listas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: novaListaNome.trim().toUpperCase() })
+      });
+
+      if (res.ok) {
+        const novaListaCriada = await res.json();
+        setListas(prev => [novaListaCriada, ...prev]);
+        setListaParaCompararId(novaListaCriada.id);
+        setNovaListaNome('');
+      } else {
+        alert('Ocorreu um erro ao salvar no banco. Tente novamente.');
+      }
+    } catch (err) {
+      console.error('Erro ao criar lista:', err);
+    }
   };
 
-  const adicionarItem = (e) => {
-    e.preventDefault();
-    if (!novoItemNome.trim() || !listaSelecionadaId) return;
-    const item = {
-      id: Date.now(),
-      nome: novoItemNome.toUpperCase(),
-      qtd: Number(novoItemQtd) || 1,
-      precoEstimado: (Math.random() * 12 + 3).toFixed(2),
-      marca: obterMarcaParaItem(novoItemNome)
-    };
-    setListas(listas.map(l => l.id === listaSelecionadaId ? { ...l, itens: [...l.itens, item] } : l));
-    setNovoItemNome('');
-    setNovoItemQtd(1);
+  const handleInputItemChange = (listaId, campo, valor) => {
+    setInputsItens(prev => ({
+      ...prev,
+      [listaId]: {
+        nome: campo === 'nome' ? valor : prev[listaId]?.nome || '',
+        qtd: campo === 'qtd' ? valor : prev[listaId]?.qtd || 1
+      }
+    }));
   };
 
-  const listaAtiva = listas.find(l => l.id === listaSelecionadaId) || listas[0];
-  const totalBase = (listaAtiva?.itens || []).reduce((acc, i) => acc + (i.precoEstimado * i.qtd), 0);
+  const adicionarItem = async (e, listaId) => {
+    if (e) e.preventDefault();
+    const input = inputsItens[listaId];
+    if (!input || !input.nome || !input.nome.trim()) return;
 
-  // Simulação de Mercados e Cupons no Ranking
-  const mercados = [
-    { id: 1, nome: 'CARREFOUR', fator: 0.95 },
-    { id: 2, nome: 'EXTRA', fator: 1.02 },
-    ...historicoCupons.map(c => ({ id: c.id, nome: c.mercado, fator: 0.92, isCupom: true }))
-  ].map(m => ({
-    ...m,
-    total: (totalBase * m.fator).toFixed(2)
-  })).sort((a, b) => a.total - b.total);
+    const nomeFormatado = input.nome.trim().toUpperCase();
+    const qtdInserida = Number(input.qtd) || 1;
+    const precoEstimadoBase = (Math.random() * 15 + 3).toFixed(2);
+    const marcaCalculada = obterMarcaParaItem(nomeFormatado);
 
-  if (screen === 'login') {
+    try {
+      const res = await fetch('/api/listas', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'ADICIONAR_ITEM',
+          listaId,
+          nome: nomeFormatado,
+          qtd: qtdInserida,
+          precoEstimado: precoEstimadoBase,
+          marca: marcaCalculada
+        })
+      });
+
+      if (res.ok) {
+        const itemSalvo = await res.json();
+        setListas(prevListas => prevListas.map(l => {
+          if (l.id === listaId) {
+            return { ...l, itens: [...(l.itens || []), itemSalvo] };
+          }
+          return l;
+        }));
+        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
+      }
+    } catch (err) {
+      console.error('Erro ao adicionar item:', err);
+    }
+  };
+
+  const alterarQuantidade = async (listaId, itemId, delta) => {
+    let novaQtd = 1;
+
+    setListas(prevListas => prevListas.map(l => {
+      if (l.id === listaId) {
+        return {
+          ...l,
+          itens: (l.itens || []).map(item => {
+            if (item.id === itemId) {
+              novaQtd = Math.max(1, item.qtd + delta);
+              return { ...item, qtd: novaQtd };
+            }
+            return item;
+          })
+        };
+      }
+      return l;
+    }));
+
+    await fetch('/api/listas', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
+    });
+  };
+
+  const removerItem = async (listaId, itemId) => {
+    setListas(prev => prev.map(l => l.id === listaId ? { ...l, itens: (l.itens || []).filter(i => i.id !== itemId) } : l));
+    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
+  };
+
+  const toggleCheck = async (listaId, itemId) => {
+    let novoMarcado = false;
+    setListas(prev => prev.map(l => {
+      if (l.id === listaId) {
+        return {
+          ...l,
+          itens: (l.itens || []).map(i => {
+            if (i.id === itemId) {
+              novoMarcado = !i.marcado;
+              return { ...i, marcado: novoMarcado };
+            }
+            return i;
+          })
+        };
+      }
+      return l;
+    }));
+
+    await fetch('/api/listas', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
+    });
+  };
+
+  const deletarLista = async (id) => {
+    if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
+      setListas(prev => prev.filter(l => l.id !== id));
+      if (listaParaCompararId === id) setListaParaCompararId(listas[0]?.id || null);
+      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
+    }
+  };
+
+  // ----------------------------------------------------
+  // TELA DE LOGIN
+  // ----------------------------------------------------
+  if (screen === 'login' && !isLogged) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-8 w-full max-w-sm space-y-6 shadow-xl">
-          <div className="text-center space-y-1">
-            <h1 className="text-2xl font-black text-emerald-600">🛒 Tá Quanto?</h1>
-            <p className="text-xs text-slate-500 font-medium">Economize nas suas compras</p>
+      <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
+        <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-extrabold text-[#0d824d] flex items-center justify-center gap-2">
+              <span>🛒</span> TÁ QUANTO?
+            </h1>
+            <p className="text-gray-600 text-sm font-medium">Faça login para comparar suas listas</p>
           </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input 
-              type="text" 
-              placeholder="Usuário" 
-              value={usuario} 
-              onChange={e => setUsuario(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-emerald-500"
-            />
-            <input 
-              type="password" 
-              placeholder="Senha" 
-              value={senha} 
-              onChange={e => setSenha(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-emerald-500"
-            />
-            <button className="w-full bg-emerald-600 text-white font-bold py-3 rounded-2xl text-xs shadow-lg shadow-emerald-600/30">
+
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
+              <input
+                type="text"
+                placeholder="Digite seu usuário"
+                value={usuario}
+                onChange={e => setUsuario(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
+              <input
+                type="password"
+                placeholder="Digite sua senha"
+                value={senha}
+                onChange={e => setSenha(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white"
+                required
+              />
+            </div>
+
+            <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all">
               Entrar
             </button>
           </form>
@@ -106,202 +411,472 @@ export default function Home() {
     );
   }
 
+  // Cálculos para o comparador de preços
+  const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
+  const baseMercados = mercadosReais.length > 0 ? mercadosReais : [
+    { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
+    { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
+    { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
+  ];
+
+  const cuponsFormatadosParaMercado = historicoCupons.map(c => ({
+    id: `cupom_${c.id}`,
+    idOriginalCupom: c.id,
+    nome: c.mercado,
+    distancia: `Bipado em ${c.data} às ${c.hora}`,
+    fatorPreco: c.fatorPreco || 0.95,
+    tag: c.tag,
+    corTag: c.corTag,
+    isCupom: true
+  }));
+
+  const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
+  const itensDaListaAtiva = listaSelecionada?.itens || [];
+  const totalBase = itensDaListaAtiva.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
+
+  const listaMercadosOrdenados = [...todosMercadosECupons].map(item => {
+    const totalCalculado = Number((totalBase * (item.fatorPreco || 1)).toFixed(2));
+    return { ...item, totalCalculado };
+  }).sort((a, b) => a.totalCalculado - b.totalCalculado);
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 pb-24 font-sans">
-      {/* CABEÇALHO CLEAN */}
-      <header className="bg-white border-b border-slate-100 px-5 py-4 flex justify-between items-center sticky top-0 z-10">
-        <div>
-          <h1 className="text-lg font-black text-emerald-600">Tá Quanto?</h1>
-          <p className="text-[10px] font-bold text-slate-400">Olá, {usuario.toUpperCase()}</p>
+    <div className="min-h-screen bg-[#f4f6f8] pb-24 font-sans">
+      {/* CABEÇALHO FIXO */}
+      <header className="bg-white border-b sticky top-0 z-30 px-4 py-3 shadow-sm">
+        <div className="max-w-xl mx-auto flex justify-between items-center">
+          <h1 className="text-base font-extrabold text-[#0d824d] flex items-center gap-1.5">
+            🛒 TÁ QUANTO?
+          </h1>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+              👤 {usuario.toUpperCase()}
+            </span>
+            <button onClick={handleLogout} className="text-xs font-bold text-red-500 hover:underline">
+              Sair
+            </button>
+          </div>
         </div>
-        <button onClick={() => setScreen('login')} className="text-xs text-slate-400 font-bold hover:text-red-500">
-          Sair
-        </button>
       </header>
 
-      <main className="max-w-md mx-auto p-4 space-y-4">
-        {/* ABA 1: LISTAS DE COMPRAS */}
+      {/* CONTEÚDO PRINCIPAL (MUDANDO POR ABA) */}
+      <main className="max-w-xl mx-auto p-4 space-y-4">
+
+        {/* ABA 1: MINHAS LISTAS */}
         {activeTab === 'listas' && (
           <div className="space-y-4">
-            {/* Nova Lista */}
-            <form onSubmit={criarNovaLista} className="flex gap-2">
-              <input 
-                type="text" 
-                placeholder="Nome da nova lista..." 
-                value={novaListaNome}
-                onChange={e => setNovaListaNome(e.target.value)}
-                className="flex-1 bg-white border border-slate-200 px-4 py-2.5 rounded-2xl text-xs font-semibold shadow-sm focus:outline-none"
-              />
-              <button className="bg-slate-900 text-white px-4 py-2.5 rounded-2xl text-xs font-bold shadow-sm">
-                + Lista
-              </button>
-            </form>
-
-            {/* Seletor de Listas */}
-            {listas.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {listas.map(l => (
-                  <button
-                    key={l.id}
-                    onClick={() => setListaSelecionadaId(l.id)}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                      (listaSelecionadaId || listas[0]?.id) === l.id 
-                        ? 'bg-emerald-600 text-white shadow-md' 
-                        : 'bg-white border border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {l.nome} ({l.itens.length})
-                  </button>
-                ))}
+            {/* CRIAR NOVA LISTA */}
+            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
+                <span className="text-blue-600">➕</span> Nova Lista de Compras
               </div>
-            )}
+              <form onSubmit={criarNovaLista} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="EX: MENSAL, CHURRASCO, FARMÁCIA..."
+                  value={novaListaNome}
+                  onChange={e => setNovaListaNome(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 uppercase bg-white"
+                  required
+                />
+                <button type="submit" className="bg-[#1877f2] hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all">
+                  + Criar
+                </button>
+              </form>
+            </div>
 
-            {/* Adicionar Itens na Lista Ativa */}
-            {listaAtiva && (
-              <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 space-y-3">
-                <form onSubmit={adicionarItem} className="flex gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="Adicionar produto..." 
-                    value={novoItemNome}
-                    onChange={e => setNovoItemNome(e.target.value)}
-                    className="flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs font-semibold"
-                  />
-                  <input 
-                    type="number" 
-                    min="1"
-                    value={novoItemQtd}
-                    onChange={e => setNovoItemQtd(e.target.value)}
-                    className="w-12 bg-slate-50 border border-slate-200 px-2 py-2 rounded-xl text-xs text-center font-bold"
-                  />
-                  <button className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">
-                    +
-                  </button>
-                </form>
+            {/* LISTAGEM DAS LISTAS */}
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-center px-1">
+                <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
+                  Suas Listas ({listas.length})
+                </h2>
+                <button onClick={carregarListasDoBanco} className="text-xs text-blue-600 font-bold hover:underline">
+                  🔄 Sincronizar
+                </button>
+              </div>
 
-                {/* Lista de Produtos */}
-                <div className="divide-y divide-slate-100">
-                  {listaAtiva.itens.length === 0 ? (
-                    <p className="text-center text-xs text-slate-400 py-6">Nenhum item adicionado ainda.</p>
-                  ) : (
-                    listaAtiva.itens.map(item => (
-                      <div key={item.id} className="py-2.5 flex justify-between items-center text-xs">
-                        <div>
-                          <span className="font-bold text-slate-800">{item.nome}</span>
-                          <span className="text-[10px] text-slate-400 block">Marca sugerida: {item.marca}</span>
-                        </div>
-                        <span className="bg-slate-100 px-2 py-1 rounded-lg font-extrabold text-slate-600">
-                          {item.qtd}x
+              {loadingListas ? (
+                <div className="bg-white p-6 rounded-2xl text-center border">
+                  <p className="text-xs font-bold text-gray-500">Carregando listas...</p>
+                </div>
+              ) : listas.length === 0 ? (
+                <div className="bg-white p-6 rounded-2xl text-center border space-y-1">
+                  <p className="text-xs font-bold text-gray-700">Nenhuma lista encontrada.</p>
+                  <p className="text-[11px] text-gray-400">Crie uma nova lista acima para começar!</p>
+                </div>
+              ) : listas.map((lista) => {
+                const estaAberta = !!listasAbertas[lista.id];
+                const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
+                const itensLista = lista.itens || [];
+
+                return (
+                  <div key={lista.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div 
+                      onClick={() => {
+                        setListasAbertas(p => ({ ...p, [lista.id]: !p[lista.id] }));
+                        setListaParaCompararId(lista.id);
+                      }}
+                      className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 select-none"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-base text-blue-600 font-bold">{estaAberta ? '📂' : '📁'}</span>
+                        <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 uppercase">{lista.nome}</h3>
+                        <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                          {itensLista.length} {itensLista.length === 1 ? 'item' : 'itens'}
                         </span>
                       </div>
-                    ))
-                  )}
-                </div>
+                      <span className="text-[11px] font-bold text-gray-500">{estaAberta ? '▲' : '▼'}</span>
+                    </div>
+
+                    {estaAberta && (
+                      <div className="border-t border-gray-100 bg-white">
+                        <div className="p-2.5 bg-gray-50/80 border-b flex items-center justify-between gap-2">
+                          <button type="button" onClick={() => deletarLista(lista.id)} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg text-xs font-bold">
+                            🗑️ Excluir Lista
+                          </button>
+                        </div>
+
+                        <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="NOME DO ITEM..."
+                            value={inputAtual.nome}
+                            onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
+                            className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
+                            required
+                          />
+                          <input
+                            type="number"
+                            min="1"
+                            value={inputAtual.qtd}
+                            onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
+                            className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
+                          />
+                          <button type="submit" className="bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+                            + Adicionar
+                          </button>
+                        </form>
+
+                        <div className="divide-y">
+                          {itensLista.map(item => (
+                            <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(item.marcado)}
+                                  onChange={() => toggleCheck(lista.id, item.id)}
+                                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer"
+                                />
+                                <div>
+                                  <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                    {item.nome}
+                                  </span>
+                                  {item.marca && (
+                                    <span className="text-[10px] text-gray-400 block font-medium">
+                                      Marca SEFAZ: {item.marca}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
+                                  <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, -1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">-</button>
+                                  <span className="w-8 text-center text-xs font-bold">{item.qtd}</span>
+                                  <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, 1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">+</button>
+                                </div>
+                                <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">✕</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ABA 2: COMPARAR PREÇOS */}
+        {activeTab === 'comparar' && (
+          <div className="space-y-4">
+            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                  Selecione a Lista para Comparar:
+                </label>
+                <select
+                  value={listaParaCompararId || ''}
+                  onChange={(e) => setListaParaCompararId(e.target.value)}
+                  className="w-full bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2.5 focus:outline-none"
+                >
+                  {listas.map(l => (
+                    <option key={l.id} value={l.id}>
+                      {l.nome} ({l.itens?.length || 0} itens)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                onClick={buscarMercadosProximos}
+                disabled={loadingGeo}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition-all"
+              >
+                <span>📍</span> {loadingGeo ? 'Buscando GPS...' : usandoGeo ? 'GPS Ativado ✓' : 'Buscar Mercados Próximos (GPS)'}
+              </button>
+            </div>
+
+            {/* RANKING DE MERCADOS */}
+            {!listaSelecionada || !listaSelecionada.itens || listaSelecionada.itens.length === 0 ? (
+              <div className="bg-white p-8 rounded-2xl text-center border space-y-2">
+                <span className="text-3xl">📊</span>
+                <p className="text-xs font-bold text-gray-700">Sua lista selecionada está vazia.</p>
+                <p className="text-[11px] text-gray-400">Adicione itens na aba "Listas" para ver o comparativo de preços.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {listaMercadosOrdenados.map((mercado, idx) => {
+                  const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
+                  const eOMaisBarato = idx === 0;
+
+                  return (
+                    <div 
+                      key={mercado.id || idx} 
+                      className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-white border-gray-200'} ${eOMaisBarato ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
+                    >
+                      <div className="p-4 flex items-center justify-between gap-3">
+                        <div 
+                          onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
+                          className="space-y-1 flex-1 cursor-pointer select-none"
+                        >
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-black bg-gray-800 text-white px-2 py-0.5 rounded-full">
+                              #{idx + 1}º
+                            </span>
+                            {eOMaisBarato && (
+                              <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                                🥇 MENOR PREÇO
+                              </span>
+                            )}
+                            {mercado.tag && (
+                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
+                                {mercado.tag}
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-xs sm:text-sm font-extrabold text-gray-800 flex items-center gap-1.5 pt-0.5">
+                            {mercado.nome}
+                          </h4>
+                          <p className="text-[10px] text-gray-500 font-medium">{mercado.distancia}</p>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-[9px] text-gray-400 font-bold block uppercase">Total Estimado</span>
+                          <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
+                          <button
+                            onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
+                            className="text-[10px] text-emerald-700 font-bold underline mt-0.5"
+                          >
+                            {estaAbertoDetalhe ? 'Ver Menos' : 'Ver Detalhes'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {estaAbertoDetalhe && (
+                        <div className="bg-gray-50 p-3.5 border-t border-gray-100 space-y-2">
+                          <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                            Estimativa de Itens ({mercado.nome}):
+                          </h5>
+                          <div className="divide-y divide-gray-200">
+                            {itensDaListaAtiva.map(item => {
+                              const precoUn = ((item.precoEstimado || 8.5) * (mercado.fatorPreco || 1)).toFixed(2);
+                              const subtotal = (precoUn * (item.qtd || 1)).toFixed(2);
+                              const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
+
+                              return (
+                                <div key={item.id} className="py-2 flex justify-between items-center text-xs">
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-bold text-gray-800">{item.nome}</span>
+                                      <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
+                                        🏷️ {marcaExibicao}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 block font-medium mt-0.5">
+                                      {item.qtd}x un · R$ {precoUn} cada
+                                    </span>
+                                  </div>
+                                  <span className="font-extrabold text-emerald-700">R$ {subtotal}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* ABA 2: COMPARATIVO DE PREÇOS (RANKING) */}
-        {activeTab === 'comparar' && (
-          <div className="space-y-3">
-            <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-100">
-              <span className="text-xs font-extrabold text-slate-500">Lista Ativa:</span>
-              <span className="text-xs font-bold text-emerald-600">{listaAtiva?.nome || 'Nenhuma selecionada'}</span>
-            </div>
-
-            <div className="space-y-2">
-              {mercados.map((m, idx) => (
-                <div 
-                  key={m.id} 
-                  className={`bg-white p-4 rounded-2xl border flex justify-between items-center shadow-sm ${
-                    idx === 0 ? 'border-emerald-500 ring-1 ring-emerald-500/20' : 'border-slate-100'
-                  }`}
-                >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-black bg-slate-900 text-white px-1.5 py-0.5 rounded-md">
-                        #{idx + 1}
-                      </span>
-                      {m.isCupom && (
-                        <span className="text-[9px] font-bold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-md">
-                          Cupom
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="text-xs font-extrabold text-slate-800 pt-1">{m.nome}</h4>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-[9px] text-slate-400 font-bold block uppercase">Total</span>
-                    <span className="text-sm font-black text-emerald-600">R$ {m.total}</span>
-                  </div>
+        {/* ABA 3: CUPONS & QR CODE */}
+        {activeTab === 'cupons' && (
+          <div className="space-y-4">
+            <div className="bg-purple-900 text-white p-5 rounded-3xl shadow-lg space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🧾</span>
+                <div>
+                  <h3 className="text-base font-extrabold">Cupons Fiscais</h3>
+                  <p className="text-xs text-purple-200 font-medium">Bipe QR Codes de notas fiscais para atualizar preços no seu app.</p>
                 </div>
-              ))}
+              </div>
+
+              <button
+                onClick={abrirModalQr}
+                className="w-full bg-purple-500 hover:bg-purple-400 text-white font-extrabold text-xs py-3 rounded-2xl shadow flex items-center justify-center gap-2 transition-all"
+              >
+                📷 BIPAR NOVO QR CODE
+              </button>
             </div>
-          </div>
-        )}
 
-        {/* ABA 3: HISTÓRICO DE CUPONS */}
-        {activeTab === 'historico' && (
-          <div className="space-y-3">
-            <button 
-              onClick={() => setShowQrModal(true)}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-2xl text-xs shadow-md flex items-center justify-center gap-2"
-            >
-              <span>📷</span> Escanear Novo QR Code
-            </button>
-
+            {/* HISTÓRICO DE CUPONS */}
             <div className="space-y-2">
+              <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider px-1">
+                Cupons Salvos ({historicoCupons.length})
+              </h3>
+
               {historicoCupons.length === 0 ? (
-                <div className="bg-white rounded-3xl p-8 text-center text-slate-400 text-xs">
-                  Nenhum cupom salvo no histórico.
+                <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
+                  <span className="text-3xl">📜</span>
+                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
+                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles aparecerão aqui e serão incluídos na comparação!</p>
                 </div>
               ) : (
-                historicoCupons.map(c => (
-                  <div key={c.id} className="bg-white p-3.5 rounded-2xl border border-slate-100 flex justify-between items-center shadow-sm">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800">{c.mercado}</h4>
-                      <p className="text-[10px] text-slate-400">{c.data}</p>
-                    </div>
-                    <button 
-                      onClick={() => setHistoricoCupons(historicoCupons.filter(x => x.id !== c.id))}
-                      className="text-red-500 text-xs font-bold px-2 py-1 bg-red-50 rounded-lg"
+                <div className="space-y-2">
+                  {historicoCupons.map((cupom) => (
+                    <div 
+                      key={cupom.id} 
+                      className="bg-white border border-purple-200 rounded-2xl p-4 flex justify-between items-center shadow-sm"
                     >
-                      Excluir
-                    </button>
-                  </div>
-                ))
+                      <div>
+                        <h4 className="text-xs font-extrabold text-gray-800">{cupom.mercado}</h4>
+                        <p className="text-[10px] text-purple-700 font-medium mt-0.5">
+                          📅 {cupom.data} às {cupom.hora}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => excluirCupom(cupom.id)}
+                        className="text-red-500 hover:bg-red-50 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                      >
+                        🗑️ Excluir
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
         )}
       </main>
 
-      {/* BARRA DE NAVEGAÇÃO INFERIOR (BOTTOM TAB BAR) */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 px-6 py-2 flex justify-around items-center z-40 shadow-lg">
-        <button 
-          onClick={() => setActiveTab('listas')}
-          className={`flex flex-col items-center gap-1 text-[10px] font-bold ${activeTab === 'listas' ? 'text-emerald-600' : 'text-slate-400'}`}
-        >
-          <span className="text-base">📋</span>
-          Listas
-        </button>
-        <button 
-          onClick={() => setActiveTab('comparar')}
-          className={`flex flex-col items-center gap-1 text-[10px] font-bold ${activeTab === 'comparar' ? 'text-emerald-600' : 'text-slate-400'}`}
-        >
-          <span className="text-base">📊</span>
-          Comparar
-        </button>
-        <button 
-          onClick={() => setActiveTab('historico')}
-          className={`flex flex-col items-center gap-1 text-[10px] font-bold ${activeTab === 'historico' ? 'text-purple-600' : 'text-slate-400'}`}
-        >
-          <span className="text-base">📜</span>
-          Cupons
-        </button>
+      {/* BARRA DE NAVEGAÇÃO INFERIOR (BOTTOM TABS) */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 px-4 py-2">
+        <div className="max-w-md mx-auto flex justify-around items-center">
+          <button
+            onClick={() => setActiveTab('listas')}
+            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
+              activeTab === 'listas' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <span className="text-lg">📋</span>
+            <span>Listas</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('comparar')}
+            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
+              activeTab === 'comparar' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <span className="text-lg">📊</span>
+            <span>Comparar</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cupons')}
+            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
+              activeTab === 'cupons' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <span className="text-lg">🧾</span>
+            <span>Cupons</span>
+          </button>
+        </div>
       </nav>
+
+      {/* MODAL DE LEITURA DE QR CODE */}
+      {showQrModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
+                <span>📷</span> Escanear QR Code do Cupom
+              </h3>
+              <button 
+                onClick={fecharModalQr}
+                className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-black rounded-2xl overflow-hidden min-h-[220px] flex items-center justify-center relative">
+              {cameraError ? (
+                <p className="text-xs font-bold text-red-400 p-4 text-center">{cameraError}</p>
+              ) : (
+                <div id="reader" className="w-full h-full"></div>
+              )}
+            </div>
+
+            <form onSubmit={processarCupomQrCode} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                  Nome Fantasia do Estabelecimento:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Mercado do Zé, Carrefour..."
+                  value={nomeFantasiaInput}
+                  onChange={(e) => setNomeFantasiaInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={fecharModalQr}
+                  className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs hover:bg-gray-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
+                >
+                  Salvar Cupom
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
