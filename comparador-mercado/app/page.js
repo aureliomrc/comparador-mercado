@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export default function Home() {
   const [screen, setScreen] = useState('login');
@@ -24,11 +24,14 @@ export default function Home() {
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  // Modais de QR Code / Cupom Fiscal
+  // Modais de QR Code / Cupom Fiscal com Câmera Real
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [historicoCupons, setHistoricoCupons] = useState([]);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [cameraError, setCameraError] = useState('');
+  const videoRef = useRef(null);
 
   // Inteligência SEFAZ para identificar Marca Padrão
   const obterMarcaParaItem = (nomeItem) => {
@@ -70,9 +73,46 @@ export default function Home() {
   };
 
   const handleLogout = () => {
+    pararCamera();
     setIsLogged(false);
     setListas([]);
     setScreen('login');
+  };
+
+  // ----------------------------------------------------
+  // CONTROLE DA CÂMERA DO CELULAR PARA O QR CODE
+  // ----------------------------------------------------
+  const iniciarCamera = async () => {
+    setCameraError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' } // Preferência para câmera traseira
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error('Erro ao acessar a câmera:', err);
+      setCameraError('Não foi possível acessar a câmera do aparelho. Digite o código manualmente abaixo.');
+    }
+  };
+
+  const pararCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  const abrirModalQr = () => {
+    setShowQrModal(true);
+    iniciarCamera();
+  };
+
+  const fecharModalQr = () => {
+    pararCamera();
+    setShowQrModal(false);
   };
 
   // ----------------------------------------------------
@@ -122,7 +162,7 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // CUPOM FISCAL / QR CODE COM NOME FANTASIA
+  // PROCESSAR CUPOM FISCAL
   // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
@@ -143,7 +183,7 @@ export default function Home() {
     setHistoricoCupons(prev => [novoCupom, ...prev]);
     setQrUrlInput('');
     setNomeFantasiaInput('');
-    setShowQrModal(false);
+    fecharModalQr();
     alert(`Cupom do "${nomeEstabelecimento}" registrado com sucesso! Total estimado: R$ ${novoCupom.valorTotal}`);
   };
 
@@ -296,7 +336,7 @@ export default function Home() {
             <h1 className="text-3xl font-extrabold text-[#0d824d] flex items-center justify-center gap-2">
               <span>🛒</span> TÁ QUANTO?
             </h1>
-            <p className="text-gray-600 text-sm font-medium">Faça login para comparar suas listas e escanear cupons</p>
+            <p className="text-gray-600 text-sm font-medium">Faça login para comparar suas listas</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
@@ -344,18 +384,12 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
       <div className="max-w-3xl mx-auto space-y-4">
-        {/* CABEÇALHO */}
+        {/* CABEÇALHO CLEAN */}
         <header className="flex justify-between items-center bg-white px-4 py-3 rounded-2xl shadow-sm border">
           <h1 className="text-base sm:text-lg font-extrabold text-[#0d824d] flex items-center gap-1.5">
             🛒 TÁ QUANTO?
           </h1>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowQrModal(true)}
-              className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl shadow flex items-center gap-1"
-            >
-              📷 BIPAR CUPOM
-            </button>
             <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
               👤 {usuario.toUpperCase()}
             </span>
@@ -365,64 +399,28 @@ export default function Home() {
           </div>
         </header>
 
-        {/* PAINEL DE COMPARAR PREÇOS E GEOLOCALIZAÇÃO */}
+        {/* BOTÃO ÚNICO E PRINCIPAL DE COMPARAR PREÇOS */}
         {listas.length > 0 && (
-          <div className="bg-gradient-to-r from-emerald-600 to-green-600 p-4 rounded-2xl shadow-md text-white space-y-3">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-extrabold uppercase flex items-center gap-1.5">
-                  <span>📊</span> Comparador por Lista & GPS
-                </h2>
-                <p className="text-[11px] text-emerald-100 font-medium">
-                  Selecione a lista e busque mercados reais próximos
-                </p>
-              </div>
-
-              <button
-                onClick={buscarMercadosProximos}
-                disabled={loadingGeo}
-                className="bg-emerald-800 hover:bg-emerald-900 text-white font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 shadow"
-              >
-                <span>📍</span> {loadingGeo ? 'Buscando GPS...' : usandoGeo ? 'GPS Ativo ✓' : 'Ativar GPS'}
-              </button>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-2 pt-1 border-t border-emerald-500/50">
-              <div className="w-full flex-1">
-                <label className="block text-[10px] font-bold text-emerald-100 mb-0.5">Selecione a Lista:</label>
-                <select
-                  value={listaParaCompararId || ''}
-                  onChange={(e) => setListaParaCompararId(e.target.value)}
-                  className="w-full bg-emerald-700 text-white font-bold text-xs rounded-xl px-3 py-2 border border-emerald-500 focus:outline-none"
-                >
-                  {listas.map(l => (
-                    <option key={l.id} value={l.id}>
-                      {l.nome} ({l.itens?.length || 0} itens)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={() => {
-                  if (!listaSelecionada || !listaSelecionada.itens || listaSelecionada.itens.length === 0) {
-                    alert('A lista selecionada não possui itens para comparar!');
-                    return;
-                  }
-                  setMercadoExpandido(true);
-                }}
-                className="w-full sm:w-auto mt-2 sm:mt-4 bg-white text-emerald-800 font-extrabold px-5 py-2 rounded-xl text-xs hover:bg-emerald-50 shadow transition-all flex items-center justify-center gap-1.5"
-              >
-                <span>🛒</span> COMPARAR PREÇOS
-              </button>
-            </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (!listaSelecionada || !listaSelecionada.itens || listaSelecionada.itens.length === 0) {
+                  alert('Selecione ou adicione itens em uma lista para comparar!');
+                  return;
+                }
+                setMercadoExpandido(true);
+              }}
+              className="flex-1 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-md transition-all flex items-center justify-center gap-2"
+            >
+              <span>📊</span> COMPARAR PREÇOS
+            </button>
           </div>
         )}
 
         {/* CRIAR NOVA LISTA */}
         <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
-            <span className="text-blue-600">➕</span> Criar Nova Lista no Banco Neon
+            <span className="text-blue-600">➕</span> Criar Nova Lista
           </div>
           <form onSubmit={criarNovaLista} className="flex gap-2">
             <input
@@ -443,7 +441,7 @@ export default function Home() {
         {historicoCupons.length > 0 && (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3.5 space-y-2">
             <h3 className="text-xs font-extrabold text-purple-900 flex items-center gap-1.5">
-              <span>🧾</span> Cupons Bipados ({historicoCupons.length})
+              <span>🧾</span> Cupons Registrados ({historicoCupons.length})
             </h3>
             <div className="divide-y divide-purple-100">
               {historicoCupons.map(cupom => (
@@ -459,20 +457,20 @@ export default function Home() {
           </div>
         )}
 
-        {/* LISTAS */}
+        {/* SUAS LISTAS (DESIGN LIMPO) */}
         <div className="space-y-2.5">
           <div className="flex justify-between items-center px-1">
             <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
               Suas Listas ({listas.length})
             </h2>
             <button onClick={carregarListasDoBanco} className="text-xs text-blue-600 font-bold hover:underline">
-              🔄 Sincronizar Banco
+              🔄 Sincronizar
             </button>
           </div>
 
           {loadingListas ? (
             <div className="bg-white p-6 rounded-2xl text-center border space-y-2">
-              <p className="text-xs font-bold text-gray-500">Conectando ao Banco Neon...</p>
+              <p className="text-xs font-bold text-gray-500">Carregando listas...</p>
             </div>
           ) : listas.map((lista) => {
             const estaAberta = !!listasAbertas[lista.id];
@@ -482,7 +480,10 @@ export default function Home() {
             return (
               <div key={lista.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div 
-                  onClick={() => setListasAbertas(p => ({ ...p, [lista.id]: !p[lista.id] }))}
+                  onClick={() => {
+                    setListasAbertas(p => ({ ...p, [lista.id]: !p[lista.id] }));
+                    setListaParaCompararId(lista.id);
+                  }}
                   className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 select-none"
                 >
                   <div className="flex items-center gap-2.5">
@@ -564,86 +565,18 @@ export default function Home() {
           })}
         </div>
 
-        {/* MODAL DE BIPAR QR CODE DO CUPOM FISCAL COM NOME FANTASIA */}
-        {showQrModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
-                  <span>📷</span> Bipar Cupom Fiscal (QR Code)
-                </h3>
-                <button 
-                  onClick={() => setShowQrModal(false)}
-                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* SIMULADOR DE CÂMERA */}
-              <div className="bg-gray-900 rounded-2xl h-36 flex flex-col items-center justify-center text-white space-y-1 relative overflow-hidden border-2 border-dashed border-purple-400">
-                <div className="animate-pulse text-2xl">📱</div>
-                <p className="text-xs font-bold text-gray-300">Aponte a câmera para o QR Code da Nota</p>
-              </div>
-
-              <form onSubmit={processarCupomQrCode} className="space-y-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Nome Fantasia do Estabelecimento:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Supermercado Silva, Carrefour Centro..."
-                    value={nomeFantasiaInput}
-                    onChange={(e) => setNomeFantasiaInput(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Link / Chave do QR Code da Nota (Opcional):
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="https://www.sefaz.gov.br/nfce/qrcode?..."
-                    value={qrUrlInput}
-                    onChange={(e) => setQrUrlInput(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-medium"
-                  />
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowQrModal(false)}
-                    className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs hover:bg-gray-200"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
-                  >
-                    Salvar Cupom
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL DE COMPARAÇÃO DE PREÇOS COM COM MARCA DO SEFAZ E EXPANSÃO */}
+        {/* MODAL DE COMPARAÇÃO DE PREÇOS (COM GPS E BOTÃO BIPAR QR CODE DENTRO) */}
         {mercadoExpandido && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
+              {/* CABEÇALHO DO MODAL */}
               <div className="flex justify-between items-center border-b pb-3">
                 <div>
                   <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
-                    <span>🛒</span> Comparativo da Lista: <span className="text-emerald-700">{listaSelecionada?.nome}</span>
+                    <span>🛒</span> Comparativo de Preços
                   </h3>
                   <p className="text-[10px] text-gray-500 font-semibold">
-                    Exibindo marcas de acordo com a base de dados do SEFAZ
+                    Lista ativa: <span className="text-emerald-700 font-bold">{listaSelecionada?.nome}</span>
                   </p>
                 </div>
                 <button 
@@ -657,7 +590,41 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+              {/* SELEÇÃO DE LISTA E AÇÕES DENTRO DA TELA DE COMPARAÇÃO */}
+              <div className="space-y-2 bg-gray-50 p-3 rounded-2xl border border-gray-200">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={listaParaCompararId || ''}
+                    onChange={(e) => setListaParaCompararId(e.target.value)}
+                    className="flex-1 bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2 focus:outline-none"
+                  >
+                    {listas.map(l => (
+                      <option key={l.id} value={l.id}>
+                        {l.nome} ({l.itens?.length || 0} itens)
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={abrirModalQr}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs px-3 py-2 rounded-xl shadow flex items-center justify-center gap-1"
+                  >
+                    📷 BIPAR QR
+                  </button>
+                </div>
+
+                {/* BOTÃO DE GPS SOLICITADO */}
+                <button
+                  onClick={buscarMercadosProximos}
+                  disabled={loadingGeo}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow"
+                >
+                  <span>📍</span> {loadingGeo ? 'Buscando GPS...' : usandoGeo ? 'GPS Ativado ✓' : 'Buscar mercados na minha localização'}
+                </button>
+              </div>
+
+              {/* CARDS DOS MERCADOS */}
+              <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                 {listaMercadosParaExibir.map((mercado, idx) => {
                   const itensDaLista = listaSelecionada?.itens || [];
                   const fator = mercado.fatorPreco || 1;
@@ -670,7 +637,6 @@ export default function Home() {
                       key={mercado.id || idx} 
                       className={`rounded-2xl border transition-all bg-gray-50 overflow-hidden ${estaAbertoDetalhe ? 'border-emerald-500 shadow-md ring-2 ring-emerald-500/20' : 'border-gray-200 hover:border-emerald-400'}`}
                     >
-                      {/* CARD DO MERCADO */}
                       <div 
                         onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
                         className="p-4 flex items-center justify-between cursor-pointer select-none"
@@ -693,7 +659,7 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* DETALHAMENTO ITEM POR ITEM COM MARCA DO SEFAZ */}
+                      {/* DETALHAMENTO DO MERCADO */}
                       {estaAbertoDetalhe && (
                         <div className="bg-white p-3 border-t border-emerald-100 space-y-2">
                           <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
@@ -739,6 +705,88 @@ export default function Home() {
               >
                 Fechar Comparação
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE BIPAR QR CODE COM CÂMERA DO CELULAR E NOME FANTASIA */}
+        {showQrModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
+                  <span>📷</span> Câmera / Escanear QR Code
+                </h3>
+                <button 
+                  onClick={fecharModalQr}
+                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* TELA DE VÍDEO DA CÂMERA DO CELULAR */}
+              <div className="bg-black rounded-2xl h-48 flex flex-col items-center justify-center text-white relative overflow-hidden border-2 border-dashed border-purple-500">
+                {cameraError ? (
+                  <p className="text-xs font-bold text-red-400 px-4 text-center">{cameraError}</p>
+                ) : (
+                  <>
+                    <video 
+                      ref={videoRef} 
+                      autoPlay 
+                      playsInline 
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 border-2 border-purple-400/50 m-6 rounded-xl pointer-events-none animate-pulse flex items-center justify-center">
+                      <span className="text-[10px] bg-purple-900/80 text-white font-bold px-2 py-1 rounded">Aponte para o QR Code</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <form onSubmit={processarCupomQrCode} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                    Nome Fantasia do Estabelecimento:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Supermercado Silva, Carrefour..."
+                    value={nomeFantasiaInput}
+                    onChange={(e) => setNomeFantasiaInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                    Link ou Chave da Nota Fiscal (Opcional):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://www.sefaz.gov.br/..."
+                    value={qrUrlInput}
+                    onChange={(e) => setQrUrlInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-medium"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={fecharModalQr}
+                    className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs hover:bg-gray-200"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
+                  >
+                    Salvar Cupom
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
