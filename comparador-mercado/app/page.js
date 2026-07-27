@@ -1,5 +1,6 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 export default function Home() {
   const [screen, setScreen] = useState('login');
@@ -24,14 +25,13 @@ export default function Home() {
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  // Modais de QR Code / Cupom Fiscal com Câmera Real
+  // Modais de QR Code / Cupom Fiscal com Leitor Real
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [historicoCupons, setHistoricoCupons] = useState([]);
-  const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState('');
-  const videoRef = useRef(null);
+  const qrScannerRef = useRef(null);
 
   // Inteligência SEFAZ para identificar Marca Padrão
   const obterMarcaParaItem = (nomeItem) => {
@@ -59,7 +59,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Erro ao conectar com o banco:', error);
-    } finally {
+    } fontally {
       setLoadingListas(false);
     }
   };
@@ -73,47 +73,82 @@ export default function Home() {
   };
 
   const handleLogout = () => {
-    pararCamera();
+    pararScanner();
     setIsLogged(false);
     setListas([]);
     setScreen('login');
   };
 
   // ----------------------------------------------------
-  // CONTROLE DA CÂMERA DO CELULAR PARA O QR CODE
+  // LEITOR DE QR CODE EM TEMPO REAL (HTML5-QRCODE)
   // ----------------------------------------------------
-  const iniciarCamera = async () => {
+  const iniciarScanner = async () => {
     setCameraError('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' } // Preferência para câmera traseira
-      });
-      setCameraStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+      // Garante limpeza de instâncias anteriores
+      if (qrScannerRef.current) {
+        await pararScanner();
       }
+
+      const html5QrCode = new Html5Qrcode("reader");
+      qrScannerRef.current = html5QrCode;
+
+      const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+
+      await html5QrCode.start(
+        { facingMode: "environment" }, // Prioriza câmera traseira do celular
+        config,
+        (decodedText) => {
+          // QUANDO O QR CODE É LIDO COM SUCESSO:
+          setQrUrlInput(decodedText);
+          pararScanner();
+          alert(`✅ QR Code lido com sucesso!\n\nDados: ${decodedText}`);
+        },
+        (errorMessage) => {
+          // Falhas normais de busca por frame (ignorar)
+        }
+      );
     } catch (err) {
-      console.error('Erro ao acessar a câmera:', err);
-      setCameraError('Não foi possível acessar a câmera do aparelho. Digite o código manualmente abaixo.');
+      console.error('Erro ao iniciar câmera:', err);
+      setCameraError('Não foi possível abrir a câmera. Permita o acesso ou digite os dados abaixo.');
     }
   };
 
-  const pararCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-      setCameraStream(null);
+  const pararScanner = async () => {
+    if (qrScannerRef.current) {
+      try {
+        if (qrScannerRef.current.isScanning) {
+          await qrScannerRef.current.stop();
+        }
+        qrScannerRef.current.clear();
+      } catch (err) {
+        console.error("Erro ao parar scanner:", err);
+      }
+      qrScannerRef.current = null;
     }
   };
 
   const abrirModalQr = () => {
     setShowQrModal(true);
-    iniciarCamera();
   };
 
   const fecharModalQr = () => {
-    pararCamera();
+    pararScanner();
     setShowQrModal(false);
   };
+
+  // Inicia o scanner assim que o modal de QR é exibido na tela
+  useEffect(() => {
+    if (showQrModal) {
+      // Pequeno timeout para garantir que a div #reader já existe no DOM
+      const timer = setTimeout(() => {
+        iniciarScanner();
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      pararScanner();
+    }
+  }, [showQrModal]);
 
   // ----------------------------------------------------
   // GEOLOCALIZAÇÃO: Buscar Mercados Próximos
@@ -384,7 +419,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
       <div className="max-w-3xl mx-auto space-y-4">
-        {/* CABEÇALHO CLEAN */}
+        {/* CABEÇALHO */}
         <header className="flex justify-between items-center bg-white px-4 py-3 rounded-2xl shadow-sm border">
           <h1 className="text-base sm:text-lg font-extrabold text-[#0d824d] flex items-center gap-1.5">
             🛒 TÁ QUANTO?
@@ -399,7 +434,7 @@ export default function Home() {
           </div>
         </header>
 
-        {/* BOTÃO ÚNICO E PRINCIPAL DE COMPARAR PREÇOS */}
+        {/* BOTÃO PRINCIPAL DE COMPARAR PREÇOS */}
         {listas.length > 0 && (
           <div className="flex gap-2">
             <button
@@ -437,7 +472,7 @@ export default function Home() {
           </form>
         </div>
 
-        {/* HISTÓRICO DE CUPONS BIPADOS */}
+        {/* HISTÓRICO DE CUPONS */}
         {historicoCupons.length > 0 && (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3.5 space-y-2">
             <h3 className="text-xs font-extrabold text-purple-900 flex items-center gap-1.5">
@@ -457,7 +492,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* SUAS LISTAS (DESIGN LIMPO) */}
+        {/* LISTAS */}
         <div className="space-y-2.5">
           <div className="flex justify-between items-center px-1">
             <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
@@ -565,11 +600,10 @@ export default function Home() {
           })}
         </div>
 
-        {/* MODAL DE COMPARAÇÃO DE PREÇOS (COM GPS E BOTÃO BIPAR QR CODE DENTRO) */}
+        {/* MODAL DE COMPARAÇÃO */}
         {mercadoExpandido && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
-              {/* CABEÇALHO DO MODAL */}
               <div className="flex justify-between items-center border-b pb-3">
                 <div>
                   <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
@@ -590,7 +624,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* SELEÇÃO DE LISTA E AÇÕES DENTRO DA TELA DE COMPARAÇÃO */}
               <div className="space-y-2 bg-gray-50 p-3 rounded-2xl border border-gray-200">
                 <div className="flex flex-col sm:flex-row gap-2">
                   <select
@@ -613,7 +646,6 @@ export default function Home() {
                   </button>
                 </div>
 
-                {/* BOTÃO DE GPS SOLICITADO */}
                 <button
                   onClick={buscarMercadosProximos}
                   disabled={loadingGeo}
@@ -623,7 +655,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* CARDS DOS MERCADOS */}
               <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                 {listaMercadosParaExibir.map((mercado, idx) => {
                   const itensDaLista = listaSelecionada?.itens || [];
@@ -659,7 +690,6 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* DETALHAMENTO DO MERCADO */}
                       {estaAbertoDetalhe && (
                         <div className="bg-white p-3 border-t border-emerald-100 space-y-2">
                           <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
@@ -709,13 +739,13 @@ export default function Home() {
           </div>
         )}
 
-        {/* MODAL DE BIPAR QR CODE COM CÂMERA DO CELULAR E NOME FANTASIA */}
+        {/* MODAL DO LEITOR DE QR CODE REAL */}
         {showQrModal && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
             <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
               <div className="flex justify-between items-center border-b pb-3">
                 <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
-                  <span>📷</span> Câmera / Escanear QR Code
+                  <span>📷</span> Escanear QR Code do Cupom
                 </h3>
                 <button 
                   onClick={fecharModalQr}
@@ -725,22 +755,12 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* TELA DE VÍDEO DA CÂMERA DO CELULAR */}
-              <div className="bg-black rounded-2xl h-48 flex flex-col items-center justify-center text-white relative overflow-hidden border-2 border-dashed border-purple-500">
+              {/* CONTAINER DA CÂMERA E SCANNER */}
+              <div className="bg-black rounded-2xl overflow-hidden min-h-[220px] flex items-center justify-center relative">
                 {cameraError ? (
-                  <p className="text-xs font-bold text-red-400 px-4 text-center">{cameraError}</p>
+                  <p className="text-xs font-bold text-red-400 p-4 text-center">{cameraError}</p>
                 ) : (
-                  <>
-                    <video 
-                      ref={videoRef} 
-                      autoPlay 
-                      playsInline 
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 border-2 border-purple-400/50 m-6 rounded-xl pointer-events-none animate-pulse flex items-center justify-center">
-                      <span className="text-[10px] bg-purple-900/80 text-white font-bold px-2 py-1 rounded">Aponte para o QR Code</span>
-                    </div>
-                  </>
+                  <div id="reader" className="w-full h-full"></div>
                 )}
               </div>
 
@@ -760,11 +780,11 @@ export default function Home() {
 
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Link ou Chave da Nota Fiscal (Opcional):
+                    Conteúdo Lido / Link SEFAZ:
                   </label>
                   <input
                     type="text"
-                    placeholder="https://www.sefaz.gov.br/..."
+                    placeholder="O código lido aparecerá aqui automaticamente..."
                     value={qrUrlInput}
                     onChange={(e) => setQrUrlInput(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-medium"
