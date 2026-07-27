@@ -59,7 +59,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Erro ao conectar com o banco:', error);
-    } fontally {
+    } finally {
       setLoadingListas(false);
     }
   };
