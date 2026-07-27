@@ -6,10 +6,11 @@ export default function Home() {
   const [screen, setScreen] = useState('login');
   const [isLogged, setIsLogged] = useState(false);
   const [loadingListas, setLoadingListas] = useState(false);
+  const [loadingCupons, setLoadingCupons] = useState(false);
   const [activeTab, setActiveTab] = useState('listas'); // 'listas' | 'comparar' | 'cupons'
 
   // Autenticação e Cadastro
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'cadastro'
+  const [authMode, setAuthMode] = useState('login');
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   
@@ -42,18 +43,23 @@ export default function Home() {
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef(null);
 
-  // Inteligência SEFAZ para identificar Marca Padrão
-  const obterMarcaParaItem = (nomeItem) => {
-    const itemUpper = (nomeItem || '').toUpperCase();
-    if (itemUpper.includes('ARROZ')) return 'CAMIL';
-    if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
-    if (itemUpper.includes('LEITE')) return 'NINHO';
-    if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
-    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
-    if (itemUpper.includes('OLEO') || itemUpper.includes('ÓLEO')) return 'LIZA';
-    return 'MARCA SEFAZ';
+  // BUSCAR CUPONS DO BANCO DE DADOS
+  const carregarCuponsDoBanco = async () => {
+    setLoadingCupons(true);
+    try {
+      const res = await fetch('/api/cupons', { cache: 'no-store' });
+      if (res.ok) {
+        const dados = await res.json();
+        setHistoricoCupons(dados);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar cupons do banco:', error);
+    } finally {
+      setLoadingCupons(false);
+    }
   };
 
+  // BUSCAR LISTAS DO BANCO DE DADOS
   const carregarListasDoBanco = async () => {
     setLoadingListas(true);
     try {
@@ -78,6 +84,7 @@ export default function Home() {
     setIsLogged(true);
     setScreen('dashboard');
     await carregarListasDoBanco();
+    await carregarCuponsDoBanco();
   };
 
   const handleCadastro = async (e) => {
@@ -89,18 +96,19 @@ export default function Home() {
       return alert('Você precisa aceitar os termos de privacidade (LGPD) para prosseguir.');
     }
 
-    // Sucesso no cadastro: define o usuário logado e redireciona
     setUsuario(usuarioCadastro);
     setIsLogged(true);
     setScreen('dashboard');
     alert(`Conta criada com sucesso! Bem-vindo(a), ${nomeCompleto.split(' ')[0]}!`);
     await carregarListasDoBanco();
+    await carregarCuponsDoBanco();
   };
 
   const handleLogout = () => {
     pararScanner();
     setIsLogged(false);
     setListas([]);
+    setHistoricoCupons([]);
     setScreen('login');
   };
 
@@ -170,7 +178,7 @@ export default function Home() {
   }, [showQrModal]);
 
   // ----------------------------------------------------
-  // GEOLOCALIZAÇÃO: Buscar Mercados Próximos
+  // GEOLOCALIZAÇÃO
   // ----------------------------------------------------
   const buscarMercadosProximos = () => {
     if (!navigator.geolocation) {
@@ -216,7 +224,7 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // PROCESSAR E GERENCIAR CUPONS
+  // SALVAR CUPOM NO BANCO DE DADOS
   // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
@@ -226,31 +234,51 @@ export default function Home() {
 
     const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
 
-    const novoCupom = {
-      id: Date.now(),
-      data: new Date().toLocaleDateString('pt-BR'),
-      hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      mercado: nomeEstabelecimento,
-      fatorPreco: (0.85 + Math.random() * 0.25),
-      url: qrUrlInput,
-      tag: '🧾 CUPOM BIPADO',
-      corTag: 'bg-purple-100 text-purple-800'
-    };
+    try {
+      const res = await fetch('/api/cupons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mercado: nomeEstabelecimento,
+          url: qrUrlInput,
+          fatorPreco: (0.85 + Math.random() * 0.25)
+        })
+      });
 
-    setHistoricoCupons(prev => [novoCupom, ...prev]);
-    setQrUrlInput('');
-    setNomeFantasiaInput('');
-    fecharModalQr();
-  };
-
-  const excluirCupom = (id) => {
-    if (confirm('Deseja excluir este cupom bipado do histórico e da comparação?')) {
-      setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+      if (res.ok) {
+        const cupomSalvo = await res.json();
+        setHistoricoCupons(prev => [cupomSalvo, ...prev]);
+        setQrUrlInput('');
+        setNomeFantasiaInput('');
+        fecharModalQr();
+      } else {
+        alert('Erro ao salvar cupom no servidor.');
+      }
+    } catch (err) {
+      console.error('Erro ao salvar cupom:', err);
     }
   };
 
+  const excluirCupom = async (id) => {
+    if (confirm('Deseja excluir este cupom do banco de dados?')) {
+      setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+      await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
+    }
+  };
+
+  const obterMarcaParaItem = (nomeItem) => {
+    const itemUpper = (nomeItem || '').toUpperCase();
+    if (itemUpper.includes('ARROZ')) return 'CAMIL';
+    if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
+    if (itemUpper.includes('LEITE')) return 'NINHO';
+    if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
+    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
+    if (itemUpper.includes('OLEO') || itemUpper.includes('ÓLEO')) return 'LIZA';
+    return 'MARCA SEFAZ';
+  };
+
   // ----------------------------------------------------
-  // Ações das Listas
+  // AÇÕES DAS LISTAS
   // ----------------------------------------------------
   const criarNovaLista = async (e) => {
     e.preventDefault();
@@ -405,7 +433,6 @@ export default function Home() {
             </p>
           </div>
 
-          {/* CHAVEADOR DE ABAS (LOGIN / CADASTRO) */}
           <div className="flex border-b border-gray-200">
             <button
               type="button"
@@ -431,7 +458,6 @@ export default function Home() {
             </button>
           </div>
 
-          {/* FORMULÁRIO DE LOGIN */}
           {authMode === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
@@ -464,7 +490,6 @@ export default function Home() {
             </form>
           )}
 
-          {/* FORMULÁRIO DE CADASTRO */}
           {authMode === 'cadastro' && (
             <form onSubmit={handleCadastro} className="space-y-3.5">
               <div>
@@ -515,7 +540,6 @@ export default function Home() {
                 />
               </div>
 
-              {/* ACEITE DE LGPD */}
               <div className="pt-2">
                 <div className="flex items-start gap-2">
                   <input
@@ -545,7 +569,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* MODAL DE TERMOS DE PRIVACIDADE E LGPD */}
         {showTermosModal && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4 max-h-[80vh] flex flex-col">
@@ -563,29 +586,11 @@ export default function Home() {
 
               <div className="overflow-y-auto space-y-3 text-xs text-gray-600 leading-relaxed pr-2">
                 <p className="font-bold text-gray-800">1. Termos de Uso e Proteção de Dados (LGPD)</p>
-                <p>
-                  A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos de acordo com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 - LGPD).
-                </p>
-
+                <p>A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos segundo a LGPD (Lei nº 13.709/2018).</p>
                 <p className="font-bold text-gray-800">2. Coleta de Informações</p>
-                <p>
-                  Coletamos informações como seu nome completo, e-mail e dados de localização aproximada (GPS) exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos de você.
-                </p>
-
+                <p>Coletamos seu nome completo, e-mail e geolocalização exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos.</p>
                 <p className="font-bold text-gray-800">3. Uso das Informações</p>
-                <p>
-                  Seus dados são utilizados unicamente para personalizar suas listas de compras, estimar preços de itens da cesta básica em supermercados parceiros e otimizar sua experiência na plataforma.
-                </p>
-
-                <p className="font-bold text-gray-800">4. Compartilhamento e Segurança</p>
-                <p>
-                  Não vendemos, alugamos nem repassamos seus dados pessoais a terceiros para fins de marketing sem o seu consentimento explícito. Implementamos medidas técnicas adequadas para proteger seus dados contra acessos não autorizados.
-                </p>
-
-                <p className="font-bold text-gray-800">5. Seus Direitos</p>
-                <p>
-                  Você pode solicitar a confirmação da existência de tratamento, a correção de dados incompletos ou a eliminação de seus dados cadastrados a qualquer momento.
-                </p>
+                <p>Seus dados são utilizados para personalizar suas listas, comparar preços e otimizar sua experiência na plataforma.</p>
               </div>
 
               <div className="border-t pt-3 flex justify-end">
@@ -654,13 +659,12 @@ export default function Home() {
         </div>
       </header>
 
-      {/* CONTEÚDO PRINCIPAL (MUDANDO POR ABA) */}
+      {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-xl mx-auto p-4 space-y-4">
 
         {/* ABA 1: MINHAS LISTAS */}
         {activeTab === 'listas' && (
           <div className="space-y-4">
-            {/* CRIAR NOVA LISTA */}
             <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
               <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
                 <span className="text-blue-600">➕</span> Nova Lista de Compras
@@ -668,19 +672,18 @@ export default function Home() {
               <form onSubmit={criarNovaLista} className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="EX: MENSAL, CHURRASCO, FARMÁCIA..."
+                  placeholder="EX: MENSAL, CHURRASCO..."
                   value={novaListaNome}
                   onChange={e => setNovaListaNome(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 uppercase bg-white"
+                  className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 uppercase bg-white"
                   required
                 />
-                <button type="submit" className="bg-[#1877f2] hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all">
+                <button type="submit" className="bg-[#1877f2] hover:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0">
                   + Criar
                 </button>
               </form>
             </div>
 
-            {/* LISTAGEM DAS LISTAS */}
             <div className="space-y-2.5">
               <div className="flex justify-between items-center px-1">
                 <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
@@ -714,14 +717,14 @@ export default function Home() {
                       }}
                       className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 select-none"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-base text-blue-600 font-bold">{estaAberta ? '📂' : '📁'}</span>
-                        <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 uppercase">{lista.nome}</h3>
-                        <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-base text-blue-600 font-bold shrink-0">{estaAberta ? '📂' : '📁'}</span>
+                        <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 uppercase truncate">{lista.nome}</h3>
+                        <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full shrink-0">
                           {itensLista.length} {itensLista.length === 1 ? 'item' : 'itens'}
                         </span>
                       </div>
-                      <span className="text-[11px] font-bold text-gray-500">{estaAberta ? '▲' : '▼'}</span>
+                      <span className="text-[11px] font-bold text-gray-500 ml-2">{estaAberta ? '▲' : '▼'}</span>
                     </div>
 
                     {estaAberta && (
@@ -732,25 +735,27 @@ export default function Home() {
                           </button>
                         </div>
 
-                        <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex gap-2">
+                        <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex flex-wrap sm:flex-nowrap gap-2 items-center">
                           <input
                             type="text"
                             placeholder="NOME DO ITEM..."
                             value={inputAtual.nome}
                             onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                            className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
+                            className="flex-1 min-w-[130px] px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
                             required
                           />
-                          <input
-                            type="number"
-                            min="1"
-                            value={inputAtual.qtd}
-                            onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                            className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
-                          />
-                          <button type="submit" className="bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold">
-                            + Adicionar
-                          </button>
+                          <div className="flex gap-2 shrink-0 w-full sm:w-auto">
+                            <input
+                              type="number"
+                              min="1"
+                              value={inputAtual.qtd}
+                              onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
+                              className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
+                            />
+                            <button type="submit" className="flex-1 sm:flex-none bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 hover:bg-blue-700 transition-all">
+                              + Adicionar
+                            </button>
+                          </div>
                         </form>
 
                         <div className="divide-y">
@@ -761,24 +766,24 @@ export default function Home() {
                                   type="checkbox"
                                   checked={Boolean(item.marcado)}
                                   onChange={() => toggleCheck(lista.id, item.id)}
-                                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer"
+                                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer shrink-0"
                                 />
-                                <div>
-                                  <span className={`text-xs font-bold ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                <div className="min-w-0">
+                                  <span className={`text-xs font-bold block truncate ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
                                     {item.nome}
                                   </span>
                                   {item.marca && (
                                     <span className="text-[10px] text-gray-400 block font-medium">
-                                      Marca SEFAZ: {item.marca}
+                                      Marca: {item.marca}
                                     </span>
                                   )}
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
                                   <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, -1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">-</button>
-                                  <span className="w-8 text-center text-xs font-bold">{item.qtd}</span>
+                                  <span className="w-7 text-center text-xs font-bold">{item.qtd}</span>
                                   <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, 1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">+</button>
                                 </div>
                                 <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">✕</button>
@@ -940,17 +945,26 @@ export default function Home() {
               </button>
             </div>
 
-            {/* HISTÓRICO DE CUPONS */}
+            {/* HISTÓRICO DE CUPONS DO BANCO DE DADOS */}
             <div className="space-y-2">
-              <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider px-1">
-                Cupons Salvos ({historicoCupons.length})
-              </h3>
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
+                  Cupons Salvos na Nuvem ({historicoCupons.length})
+                </h3>
+                <button onClick={carregarCuponsDoBanco} className="text-xs text-purple-600 font-bold hover:underline">
+                  🔄 Atualizar
+                </button>
+              </div>
 
-              {historicoCupons.length === 0 ? (
+              {loadingCupons ? (
+                <div className="bg-white p-6 rounded-2xl text-center border">
+                  <p className="text-xs font-bold text-gray-500">Buscando cupons salvos...</p>
+                </div>
+              ) : historicoCupons.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenum cupom bipado até o momento.</p>
-                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles aparecerão aqui e serão incluídos na comparação!</p>
+                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
+                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta e acessíveis de qualquer dispositivo!</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -981,7 +995,7 @@ export default function Home() {
         )}
       </main>
 
-      {/* BARRA DE NAVEGAÇÃO INFERIOR (BOTTOM TABS) */}
+      {/* BARRA DE NAVEGAÇÃO INFERIOR */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 px-4 py-2">
         <div className="max-w-md mx-auto flex justify-around items-center">
           <button
