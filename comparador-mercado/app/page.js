@@ -13,7 +13,7 @@ export default function Home() {
 
   // Listas de Compras
   const [listas, setListas] = useState([]);
-  const [listasAbertas, setListasAbertas] = useState({});
+  const [listasAbertas, setListasAbertas] = useState({}); // Inicializa tudo fechado
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState({});
 
@@ -52,8 +52,8 @@ export default function Home() {
       if (res.ok) {
         const dados = await res.json();
         setListas(dados);
+        // Deixamos listasAbertas vazio {} para manter todas as listas recolhidas/fechadas por padrão
         if (dados && dados.length > 0) {
-          setListasAbertas(prev => ({ ...prev, [dados[0].id]: true }));
           setListaParaCompararId(dados[0].id);
         }
       }
@@ -195,19 +195,17 @@ export default function Home() {
   // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
-    if (!qrUrlInput.trim() && !nomeFantasiaInput.trim()) {
-      return alert('Preencha os dados do QR Code ou o Nome do Estabelecimento!');
+    if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
+      return alert('Preencha o nome do estabelecimento ou escaneie o QR Code!');
     }
 
     const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
-    const valorSimulado = (Math.random() * 60 + 30).toFixed(2);
 
     const novoCupom = {
       id: Date.now(),
       data: new Date().toLocaleDateString('pt-BR'),
       mercado: nomeEstabelecimento,
-      valorTotal: valorSimulado,
-      fatorPreco: (0.85 + Math.random() * 0.25).toFixed(2), // Variação do cupom bipado
+      fatorPreco: (0.85 + Math.random() * 0.25), // Fator de preço variante
       url: qrUrlInput,
       tag: '🧾 CUPOM BIPADO',
       corTag: 'bg-purple-100 text-purple-800'
@@ -242,7 +240,6 @@ export default function Home() {
       if (res.ok) {
         const novaListaCriada = await res.json();
         setListas(prev => [novaListaCriada, ...prev]);
-        setListasAbertas(prev => ({ ...prev, [novaListaCriada.id]: true }));
         setListaParaCompararId(novaListaCriada.id);
         setNovaListaNome('');
       } else {
@@ -414,12 +411,11 @@ export default function Home() {
   const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
 
   const baseMercados = mercadosReais.length > 0 ? mercadosReais : [
-    { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MENOR PREÇO', corTag: 'bg-green-100 text-green-800' },
-    { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MAIS PRÓXIMO', corTag: 'bg-blue-100 text-blue-800' },
-    { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'OPÇÃO PREMIUM', corTag: 'bg-purple-100 text-purple-800' }
+    { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
+    { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
+    { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
   ];
 
-  // Agrupa os mercados normais com os cupons bipados para a comparação
   const cuponsFormatadosParaMercado = historicoCupons.map(c => ({
     id: `cupom_${c.id}`,
     idOriginalCupom: c.id,
@@ -431,7 +427,18 @@ export default function Home() {
     isCupom: true
   }));
 
-  const listaMercadosParaExibir = [...cuponsFormatadosParaMercado, ...baseMercados];
+  // Unifica todos os itens
+  const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
+
+  // Cálculo do total de itens para ordenação
+  const itensDaListaAtiva = listaSelecionada?.itens || [];
+  const totalBase = itensDaListaAtiva.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
+
+  // Ordena do MAIS BARATO para o MAIS CARO independente de ser cupom ou mercado
+  const listaMercadosOrdenados = [...todosMercadosECupons].map(item => {
+    const totalCalculado = Number((totalBase * (item.fatorPreco || 1)).toFixed(2));
+    return { ...item, totalCalculado };
+  }).sort((a, b) => a.totalCalculado - b.totalCalculado);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
@@ -652,30 +659,34 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* LISTAGEM DOS MERCADOS E CUPONS NA TELA DE COMPARAÇÃO */}
+              {/* LISTAGEM DOS MERCADOS E CUPONS ORDENADOS DO MAIS BARATO PRO MAIS CARO */}
               <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-                {listaMercadosParaExibir.map((mercado, idx) => {
-                  const itensDaLista = listaSelecionada?.itens || [];
-                  const fator = mercado.fatorPreco || 1;
-                  const totalBase = itensDaLista.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
-                  const totalCalculado = (totalBase * fator).toFixed(2);
+                {listaMercadosOrdenados.map((mercado, idx) => {
                   const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
+                  const eOMaisBarato = idx === 0;
 
                   return (
                     <div 
                       key={mercado.id || idx} 
-                      className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-gray-50 border-gray-200'} ${estaAbertoDetalhe ? 'border-emerald-500 shadow-md ring-2 ring-emerald-500/20' : 'hover:border-emerald-400'}`}
+                      className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-gray-50 border-gray-200'} ${eOMaisBarato ? 'ring-2 ring-emerald-500 border-emerald-500' : ''} ${estaAbertoDetalhe ? 'shadow-md' : 'hover:border-emerald-400'}`}
                     >
                       <div className="p-4 flex items-center justify-between">
                         <div 
                           onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
                           className="space-y-1 flex-1 cursor-pointer select-none"
                         >
-                          {mercado.tag && (
-                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
-                              {mercado.tag}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {eOMaisBarato && (
+                              <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                                🥇 MENOR PREÇO
+                              </span>
+                            )}
+                            {mercado.tag && (
+                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
+                                {mercado.tag}
+                              </span>
+                            )}
+                          </div>
                           <h4 className="text-xs font-extrabold text-gray-800 flex items-center gap-1.5">
                             {mercado.nome}
                             <span className="text-[10px] text-emerald-600 font-bold">{estaAbertoDetalhe ? '▲ Ver menos' : '▼ Clique p/ ver itens'}</span>
@@ -685,11 +696,10 @@ export default function Home() {
 
                         <div className="text-right flex items-center gap-3">
                           <div>
-                            <span className="text-base font-black text-emerald-600 block">R$ {totalCalculado}</span>
-                            <span className="text-[9px] text-gray-400 font-bold">{itensDaLista.length} itens</span>
+                            <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
+                            <span className="text-[9px] text-gray-400 font-bold">{itensDaListaAtiva.length} itens</span>
                           </div>
 
-                          {/* BOTAO DE EXCLUIR CUPOM BIPADO */}
                           {mercado.isCupom && (
                             <button
                               onClick={() => excluirCupom(mercado.idOriginalCupom)}
@@ -708,8 +718,8 @@ export default function Home() {
                             Preço estimado e marcas SEFAZ no {mercado.nome}:
                           </h5>
                           <div className="divide-y divide-gray-100">
-                            {itensDaLista.map(item => {
-                              const precoUn = ((item.precoEstimado || 8.5) * fator).toFixed(2);
+                            {itensDaListaAtiva.map(item => {
+                              const precoUn = ((item.precoEstimado || 8.5) * (mercado.fatorPreco || 1)).toFixed(2);
                               const subtotal = (precoUn * (item.qtd || 1)).toFixed(2);
                               const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
 
@@ -786,19 +796,6 @@ export default function Home() {
                     value={nomeFantasiaInput}
                     onChange={(e) => setNomeFantasiaInput(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Conteúdo Lido / Link SEFAZ:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="O código lido aparecerá aqui automaticamente..."
-                    value={qrUrlInput}
-                    onChange={(e) => setQrUrlInput(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-medium"
                   />
                 </div>
 
