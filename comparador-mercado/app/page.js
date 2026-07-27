@@ -8,9 +8,18 @@ export default function Home() {
   const [loadingListas, setLoadingListas] = useState(false);
   const [activeTab, setActiveTab] = useState('listas'); // 'listas' | 'comparar' | 'cupons'
 
-  // Autenticação
+  // Autenticação e Cadastro
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'cadastro'
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
+  
+  // Campos de Cadastro
+  const [nomeCompleto, setNomeCompleto] = useState('');
+  const [emailCadastro, setEmailCadastro] = useState('');
+  const [usuarioCadastro, setUsuarioCadastro] = useState('');
+  const [senhaCadastro, setSenhaCadastro] = useState('');
+  const [aceitouLgpd, setAceitouLgpd] = useState(false);
+  const [showTermosModal, setShowTermosModal] = useState(false);
 
   // Listas de Compras
   const [listas, setListas] = useState([]);
@@ -68,6 +77,23 @@ export default function Home() {
     if (!usuario.trim()) return alert('Digite seu usuário');
     setIsLogged(true);
     setScreen('dashboard');
+    await carregarListasDoBanco();
+  };
+
+  const handleCadastro = async (e) => {
+    e.preventDefault();
+    if (!nomeCompleto.trim() || !emailCadastro.trim() || !usuarioCadastro.trim() || !senhaCadastro.trim()) {
+      return alert('Por favor, preencha todos os campos do cadastro.');
+    }
+    if (!aceitouLgpd) {
+      return alert('Você precisa aceitar os termos de privacidade (LGPD) para prosseguir.');
+    }
+
+    // Sucesso no cadastro: define o usuário logado e redireciona
+    setUsuario(usuarioCadastro);
+    setIsLogged(true);
+    setScreen('dashboard');
+    alert(`Conta criada com sucesso! Bem-vindo(a), ${nomeCompleto.split(' ')[0]}!`);
     await carregarListasDoBanco();
   };
 
@@ -364,7 +390,7 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // TELA DE LOGIN
+  // TELA DE LOGIN / CADASTRO
   // ----------------------------------------------------
   if (screen === 'login' && !isLogged) {
     return (
@@ -374,39 +400,209 @@ export default function Home() {
             <h1 className="text-3xl font-extrabold text-[#0d824d] flex items-center justify-center gap-2">
               <span>🛒</span> TÁ QUANTO?
             </h1>
-            <p className="text-gray-600 text-sm font-medium">Faça login para comparar suas listas</p>
+            <p className="text-gray-600 text-sm font-medium">
+              {authMode === 'login' ? 'Faça login para comparar suas listas' : 'Crie sua conta para começar'}
+            </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
-              <input
-                type="text"
-                placeholder="Digite seu usuário"
-                value={usuario}
-                onChange={e => setUsuario(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
-              <input
-                type="password"
-                placeholder="Digite sua senha"
-                value={senha}
-                onChange={e => setSenha(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white"
-                required
-              />
-            </div>
-
-            <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all">
-              Entrar
+          {/* CHAVEADOR DE ABAS (LOGIN / CADASTRO) */}
+          <div className="flex border-b border-gray-200">
+            <button
+              type="button"
+              onClick={() => setAuthMode('login')}
+              className={`flex-1 py-2 text-center font-bold text-xs border-b-2 transition-all ${
+                authMode === 'login'
+                  ? 'border-[#0d824d] text-[#0d824d]'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              ENTRAR
             </button>
-          </form>
+            <button
+              type="button"
+              onClick={() => setAuthMode('cadastro')}
+              className={`flex-1 py-2 text-center font-bold text-xs border-b-2 transition-all ${
+                authMode === 'cadastro'
+                  ? 'border-[#0d824d] text-[#0d824d]'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              CADASTRAR-SE
+            </button>
+          </div>
+
+          {/* FORMULÁRIO DE LOGIN */}
+          {authMode === 'login' && (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
+                <input
+                  type="text"
+                  placeholder="Digite seu usuário"
+                  value={usuario}
+                  onChange={e => setUsuario(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
+                <input
+                  type="password"
+                  placeholder="Digite sua senha"
+                  value={senha}
+                  onChange={e => setSenha(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  required
+                />
+              </div>
+
+              <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all">
+                Entrar
+              </button>
+            </form>
+          )}
+
+          {/* FORMULÁRIO DE CADASTRO */}
+          {authMode === 'cadastro' && (
+            <form onSubmit={handleCadastro} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Nome Completo</label>
+                <input
+                  type="text"
+                  placeholder="Ex: João da Silva"
+                  value={nomeCompleto}
+                  onChange={e => setNomeCompleto(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">E-mail</label>
+                <input
+                  type="email"
+                  placeholder="seu@email.com"
+                  value={emailCadastro}
+                  onChange={e => setEmailCadastro(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
+                <input
+                  type="text"
+                  placeholder="Escolha um nome de usuário"
+                  value={usuarioCadastro}
+                  onChange={e => setUsuarioCadastro(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
+                <input
+                  type="password"
+                  placeholder="Crie uma senha segura"
+                  value={senhaCadastro}
+                  onChange={e => setSenhaCadastro(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  required
+                />
+              </div>
+
+              {/* ACEITE DE LGPD */}
+              <div className="pt-2">
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="lgpd"
+                    checked={aceitouLgpd}
+                    onChange={e => setAceitouLgpd(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#0d824d] cursor-pointer"
+                  />
+                  <label htmlFor="lgpd" className="text-[11px] text-gray-600 leading-tight">
+                    Li e concordo com o tratamento de dados segundo a Lei Geral de Proteção de Dados (LGPD).{' '}
+                    <button
+                      type="button"
+                      onClick={() => setShowTermosModal(true)}
+                      className="text-blue-600 font-bold underline hover:text-blue-800"
+                    >
+                      Ler Termos de Privacidade e LGPD
+                    </button>
+                  </label>
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all mt-2">
+                Cadastrar e Acessar
+              </button>
+            </form>
+          )}
         </div>
+
+        {/* MODAL DE TERMOS DE PRIVACIDADE E LGPD */}
+        {showTermosModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4 max-h-[80vh] flex flex-col">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
+                  <span>📄</span> Termos de Privacidade e LGPD
+                </h3>
+                <button
+                  onClick={() => setShowTermosModal(false)}
+                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="overflow-y-auto space-y-3 text-xs text-gray-600 leading-relaxed pr-2">
+                <p className="font-bold text-gray-800">1. Termos de Uso e Proteção de Dados (LGPD)</p>
+                <p>
+                  A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos de acordo com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 - LGPD).
+                </p>
+
+                <p className="font-bold text-gray-800">2. Coleta de Informações</p>
+                <p>
+                  Coletamos informações como seu nome completo, e-mail e dados de localização aproximada (GPS) exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos de você.
+                </p>
+
+                <p className="font-bold text-gray-800">3. Uso das Informações</p>
+                <p>
+                  Seus dados são utilizados unicamente para personalizar suas listas de compras, estimar preços de itens da cesta básica em supermercados parceiros e otimizar sua experiência na plataforma.
+                </p>
+
+                <p className="font-bold text-gray-800">4. Compartilhamento e Segurança</p>
+                <p>
+                  Não vendemos, alugamos nem repassamos seus dados pessoais a terceiros para fins de marketing sem o seu consentimento explícito. Implementamos medidas técnicas adequadas para proteger seus dados contra acessos não autorizados.
+                </p>
+
+                <p className="font-bold text-gray-800">5. Seus Direitos</p>
+                <p>
+                  Você pode solicitar a confirmação da existência de tratamento, a correção de dados incompletos ou a eliminação de seus dados cadastrados a qualquer momento.
+                </p>
+              </div>
+
+              <div className="border-t pt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAceitouLgpd(true);
+                    setShowTermosModal(false);
+                  }}
+                  className="bg-[#0d824d] hover:bg-[#0a673d] text-white font-bold py-2 px-5 rounded-xl text-xs transition-all"
+                >
+                  Li e Concordo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -753,7 +949,7 @@ export default function Home() {
               {historicoCupons.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
+                  <p className="text-xs font-bold text-gray-700">Nenum cupom bipado até o momento.</p>
                   <p className="text-[11px] text-gray-400">Ao escaneá-los, eles aparecerão aqui e serão incluídos na comparação!</p>
                 </div>
               ) : (
