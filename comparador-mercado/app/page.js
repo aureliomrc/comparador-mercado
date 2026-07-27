@@ -59,7 +59,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Erro ao conectar com o banco:', error);
-    } finally {
+    } fontally {
       setLoadingListas(false);
     }
   };
@@ -440,7 +440,7 @@ export default function Home() {
   }).sort((a, b) => a.totalCalculado - b.totalCalculado);
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans relative pb-20">
+    <div className="min-h-screen bg-[#f4f6f8] p-4 sm:p-6 font-sans">
       <div className="max-w-3xl mx-auto space-y-4">
         {/* CABEÇALHO */}
         <header className="flex justify-between items-center bg-white px-4 py-3 rounded-2xl shadow-sm border">
@@ -603,36 +603,48 @@ export default function Home() {
           })}
         </div>
 
-        {/* MODAL DE COMPARAÇÃO COM EXIBIÇÃO CLARA DOS VALORES NO RANKING */}
+        {/* MODAL DE COMPARAÇÃO ESPAÇOSA E OTIMIZADA */}
         {mercadoExpandido && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 z-50 overflow-y-auto">
+            <div className="bg-white rounded-3xl p-5 sm:p-7 w-full max-w-2xl shadow-2xl space-y-4 my-auto">
+              
+              {/* CABEÇALHO DA MODAL DE COMPARAÇÃO */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
                 <div>
-                  <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
-                    <span>🛒</span> Ranking Comparativo de Preços
+                  <h3 className="text-base sm:text-lg font-extrabold text-gray-800 flex items-center gap-2">
+                    <span>🛒</span> Comparativo de Preços
                   </h3>
-                  <p className="text-[10px] text-gray-500 font-semibold">
-                    Lista ativa: <span className="text-emerald-700 font-bold">{listaSelecionada?.nome}</span>
+                  <p className="text-xs text-gray-500 font-semibold mt-0.5">
+                    Lista selecionada: <span className="text-emerald-700 font-bold">{listaSelecionada?.nome}</span>
                   </p>
                 </div>
-                <button 
-                  onClick={() => {
-                    setMercadoExpandido(false);
-                    setMercadoSelecionadoDetalhe(null);
-                  }}
-                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
-                >
-                  ✕
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowHistoricoModal(true)}
+                    className="bg-purple-100 hover:bg-purple-200 text-purple-900 font-bold text-xs px-3 py-1.5 rounded-xl border border-purple-200 transition-all flex items-center gap-1"
+                  >
+                    <span>📜</span> Histórico ({historicoCupons.length})
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setMercadoExpandido(false);
+                      setMercadoSelecionadoDetalhe(null);
+                    }}
+                    className="text-gray-400 hover:text-gray-700 font-bold text-xl px-2"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
+              {/* BARRA DE CONTROLES (SELETOR DE LISTAS, BIPAR E GPS) */}
               <div className="space-y-2 bg-gray-50 p-3 rounded-2xl border border-gray-200">
                 <div className="flex flex-col sm:flex-row gap-2">
                   <select
                     value={listaParaCompararId || ''}
                     onChange={(e) => setListaParaCompararId(e.target.value)}
-                    className="flex-1 bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2 focus:outline-none"
+                    className="flex-1 bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2.5 focus:outline-none"
                   >
                     {listas.map(l => (
                       <option key={l.id} value={l.id}>
@@ -643,7 +655,7 @@ export default function Home() {
 
                   <button
                     onClick={abrirModalQr}
-                    className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs px-3 py-2 rounded-xl shadow flex items-center justify-center gap-1"
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow flex items-center justify-center gap-1.5"
                   >
                     📷 BIPAR QR
                   </button>
@@ -658,8 +670,8 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* LISTAGEM DOS MERCADOS NO RANKING */}
-              <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+              {/* LISTAGEM DOS MERCADOS NO RANKING (CARDS ESPAÇOSOS) */}
+              <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
                 {listaMercadosOrdenados.map((mercado, idx) => {
                   const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
                   const eOMaisBarato = idx === 0;
@@ -669,7 +681,7 @@ export default function Home() {
                       key={mercado.id || idx} 
                       className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-gray-50 border-gray-200'} ${eOMaisBarato ? 'ring-2 ring-emerald-500 border-emerald-500' : ''} ${estaAbertoDetalhe ? 'shadow-md' : 'hover:border-emerald-400'}`}
                     >
-                      <div className="p-4 flex items-center justify-between">
+                      <div className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div 
                           onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
                           className="space-y-1 flex-1 cursor-pointer select-none"
@@ -689,18 +701,18 @@ export default function Home() {
                               </span>
                             )}
                           </div>
-                          <h4 className="text-xs font-extrabold text-gray-800 flex items-center gap-1.5">
+                          <h4 className="text-xs sm:text-sm font-extrabold text-gray-800 flex items-center gap-1.5 pt-0.5">
                             {mercado.nome}
-                            <span className="text-[10px] text-emerald-600 font-bold">{estaAbertoDetalhe ? '▲ Ver menos' : '▼ Clique p/ ver itens'}</span>
+                            <span className="text-[10px] text-emerald-600 font-bold">{estaAbertoDetalhe ? '▲ Ver menos' : '▼ Clique p/ ver detalhes'}</span>
                           </h4>
-                          <p className="text-[10px] text-gray-500 font-medium">{mercado.distancia}</p>
+                          <p className="text-[10px] sm:text-xs text-gray-500 font-medium">{mercado.distancia}</p>
                         </div>
 
-                        {/* EXIBIÇÃO DO VALOR TOTAL DO MERCADO/CUPOM */}
-                        <div className="text-right flex items-center gap-3">
-                          <div className="bg-white px-3 py-1.5 rounded-xl border border-emerald-200 shadow-sm">
+                        {/* BLOCO DE VALOR TOTAL DO MERCADO */}
+                        <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-200/60">
+                          <div className="bg-white px-3.5 py-1.5 rounded-xl border border-emerald-200 shadow-sm text-right flex-1 sm:flex-none">
                             <span className="text-[9px] text-gray-400 font-bold block uppercase">Valor Total</span>
-                            <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
+                            <span className="text-sm sm:text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
                           </div>
 
                           {mercado.isCupom && (
@@ -716,7 +728,7 @@ export default function Home() {
                       </div>
 
                       {estaAbertoDetalhe && (
-                        <div className="bg-white p-3 border-t border-emerald-100 space-y-2">
+                        <div className="bg-white p-3.5 border-t border-emerald-100 space-y-2">
                           <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
                             Preço estimado e marcas SEFAZ no {mercado.nome}:
                           </h5>
@@ -814,7 +826,7 @@ export default function Home() {
                     type="submit"
                     className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
                   >
-                    Salvar Cupom na Comparação
+                    Salvar Cupom
                   </button>
                 </div>
               </form>
@@ -878,14 +890,6 @@ export default function Home() {
             </div>
           </div>
         )}
-
-        {/* BOTÃO FLUTUANTE DE HISTÓRICO NO CANTO INFERIOR DIREITO */}
-        <button
-          onClick={() => setShowHistoricoModal(true)}
-          className="fixed bottom-5 right-5 bg-purple-700 hover:bg-purple-800 text-white font-extrabold text-xs px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 z-40 transition-all transform hover:scale-105 border-2 border-purple-300"
-        >
-          <span>📜</span> Histórico ({historicoCupons.length})
-        </button>
 
       </div>
     </div>
