@@ -11,32 +11,82 @@ const renderTexto = (val, fallback = '') => {
   return String(val);
 };
 
-// 1. Normaliza e limpa o texto (remove acentos, pontuações e stop-words)
-const normalizarTexto = (texto) => {
+// 📚 DICIONÁRIO DE SINÔNIMOS E ABREVIAÇÕES DE SUPERMERCADO
+const DICIONARIO_ABREVIACOES = {
+  // Tipos e Categorias
+  'int': 'integral',
+  'integ': 'integral',
+  'desm': 'desnatado',
+  'semid': 'semidesnatado',
+  'lt': 'leite',
+  'lte': 'leite',
+  'tp': 'tetrapack',
+  'cx': 'caixa',
+  'pote': 'pote',
+  'pdr': 'padrao',
+  'trad': 'tradicional',
+  'ext': 'extra',
+  'fbr': 'forte',
+  'c/': 'com',
+  's/': 'sem',
+  
+  // Grãos e Mantimentos
+  'arz': 'arroz',
+  'brn': 'branco',
+  'ag': 'agulhinha',
+  'feij': 'feijao',
+  'carioc': 'carioquinha',
+  'prt': 'preto',
+  'acuc': 'acucar',
+  'ref': 'refinado',
+  'cryst': 'cristal',
+  'caf': 'cafe',
+  'tost': 'torrado',
+  'oido': 'moido',
+  'oleo': 'oleo',
+  'soj': 'soja',
+  'farn': 'farinha',
+  'trg': 'trigo',
+  
+  // Marcas Comuns (Garante pontuação na busca)
+  'ninh': 'ninho',
+  'pila': 'pilao',
+  'camil': 'camil',
+  'kical': 'kicaldo',
+  'liza': 'liza',
+  'uniao': 'uniao'
+};
+
+// 1. Normaliza, limpa e TRADUZ as palavras usando o Dicionário
+const normalizarETraduzirTexto = (texto) => {
   if (!texto) return [];
-  return texto
+  
+  const palavrasLimpas = texto
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // Remove acentos
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ') // Remove caracteres especiais
-    .split(/\s+/) // Transforma em array de palavras
-    .filter(palavra => palavra.length > 1 && !['de', 'da', 'do', 'com', 'para', 'em', 'sem', 'la', 'le'].includes(palavra));
+    .replace(/[^a-z0-9\s]/g, ' ') // Remove pontuações e especiais
+    .split(/\s+/) // Separa por espaço
+    .filter(p => p.length > 1 && !['de', 'da', 'do', 'com', 'para', 'em', 'sem', 'la', 'le', '1l', '1kg', '500g', '5kg'].includes(p));
+
+  // Traduz palavras abreviadas usando o dicionário
+  return palavrasLimpas.map(palavra => DICIONARIO_ABREVIACOES[palavra] || palavra);
 };
 
-// 2. Busca Inteligente por Tokens (Fuzzy Matching para notas fiscais)
+// 2. Busca Inteligente com Dicionário + Token Matching
 const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
   if (!Array.isArray(cupomItens) || cupomItens.length === 0 || !itemNomeLista) return null;
 
-  const palavrasBusca = normalizarTexto(itemNomeLista);
+  const palavrasBusca = normalizarETraduzirTexto(itemNomeLista);
   if (palavrasBusca.length === 0) return null;
 
   let melhorMatch = null;
   let maiorPontuacao = 0;
 
   for (const itemCupom of cupomItens) {
-    const palavrasCupom = normalizarTexto(itemCupom.nome);
+    const palavrasCupom = normalizarETraduzirTexto(itemCupom.nome);
     
-    // Conta quantas palavras da sua lista aparecem no produto do cupom
+    // Conta palavras equivalentes entre a busca e o item do cupom
     let correspondencias = 0;
     for (const palavra of palavrasBusca) {
       if (palavrasCupom.some(p => p.includes(palavra) || palavra.includes(p))) {
@@ -44,11 +94,10 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
       }
     }
 
-    // Calcula a porcentagem de palavras encontradas
     const pontuacao = correspondencias / palavrasBusca.length;
 
-    // Exige pelo menos 50% de similaridade de palavras para considerar válido
-    if (pontuacao > maiorPontuacao && pontuacao >= 0.5) {
+    // Reduzido para 0.4 (40%) para capturar correspondências parciais com mais facilidade
+    if (pontuacao > maiorPontuacao && pontuacao >= 0.4) {
       maiorPontuacao = pontuacao;
       melhorMatch = itemCupom;
     }
@@ -660,8 +709,6 @@ function MainApp() {
                 <p>A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos segundo a LGPD (Lei nº 13.709/2018).</p>
                 <p className="font-bold text-gray-800">2. Coleta de Informações</p>
                 <p>Coletamos seu nome completo, e-mail e geolocalização exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos.</p>
-                <p className="font-bold text-gray-800">3. Uso das Informações</p>
-                <p>Seus dados são utilizados para personalizar suas listas, comparar preços e otimizar sua experiência na plataforma.</p>
               </div>
 
               <div className="border-t pt-3 flex justify-end">
@@ -683,7 +730,7 @@ function MainApp() {
     );
   }
 
-  // CÁLCULO DE COMPARAÇÃO COM INTELIGÊNCIA POR TOKEN/FUZZY MATCHING
+  // CÁLCULO DE COMPARAÇÃO COM DICIONÁRIO DE SINÔNIMOS INTEGRADO
   const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0];
   const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
@@ -701,32 +748,28 @@ function MainApp() {
     tag: c.tag || 'CUPOM FISCAL',
     corTag: c.corTag || 'bg-purple-100 text-purple-800',
     isCupom: true,
-    itensCupom: c.itens || [] // Lista de produtos lidos da nota
+    itensCupom: c.itens || [] 
   }));
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
 
-  // Cálculo detalhado por mercado/cupom
   const listaMercadosOrdenados = todosMercadosECupons.map(mercado => {
     let totalCalculado = 0;
 
     const itensDetalhado = itensDaListaAtiva.map(item => {
       let precoUn;
-      let origemPreco; // 'cupom' ou 'sefaz'
+      let origemPreco;
 
       if (mercado.isCupom) {
-        // Tenta buscar o preço do item usando Fuzzy Match inteligente
         const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
         if (precoCupom !== null) {
           precoUn = precoCupom;
           origemPreco = 'cupom';
         } else {
-          // Caso o item da lista não esteja na nota, usa a estimativa SEFAZ
           precoUn = Number(item.precoEstimado) || 8.5;
           origemPreco = 'sefaz';
         }
       } else {
-        // Mercados padrão usam estimativa/fator
         precoUn = (Number(item.precoEstimado) || 8.5) * (mercado.fatorPreco || 1);
         origemPreco = 'sefaz';
       }
