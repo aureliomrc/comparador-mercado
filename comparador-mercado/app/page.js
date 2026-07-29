@@ -48,7 +48,7 @@ const DICIONARIO_ABREVIACOES = {
   'farn': 'farinha',
   'trg': 'trigo',
   
-  // Marcas Comuns (Garante pontuação na busca)
+  // Marcas Comuns
   'ninh': 'ninho',
   'pila': 'pilao',
   'camil': 'camil',
@@ -61,15 +61,14 @@ const DICIONARIO_ABREVIACOES = {
 const normalizarETraduzirTexto = (texto) => {
   if (!texto) return [];
   
-  const palavrasLimpas = texto
+  const palavrasLimpas = String(texto)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // Remove acentos
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ') // Remove pontuações e especiais
-    .split(/\s+/) // Separa por espaço
+    .replace(/[^a-z0-9\s]/g, ' ') // Remove pontuações
+    .split(/\s+/)
     .filter(p => p.length > 1 && !['de', 'da', 'do', 'com', 'para', 'em', 'sem', 'la', 'le', '1l', '1kg', '500g', '5kg'].includes(p));
 
-  // Traduz palavras abreviadas usando o dicionário
   return palavrasLimpas.map(palavra => DICIONARIO_ABREVIACOES[palavra] || palavra);
 };
 
@@ -84,9 +83,9 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
   let maiorPontuacao = 0;
 
   for (const itemCupom of cupomItens) {
-    const palavrasCupom = normalizarETraduzirTexto(itemCupom.nome);
+    const nomeItemCupom = itemCupom.nome || itemCupom.descricao || itemCupom.product || '';
+    const palavrasCupom = normalizarETraduzirTexto(nomeItemCupom);
     
-    // Conta palavras equivalentes entre a busca e o item do cupom
     let correspondencias = 0;
     for (const palavra of palavrasBusca) {
       if (palavrasCupom.some(p => p.includes(palavra) || palavra.includes(p))) {
@@ -96,14 +95,14 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
 
     const pontuacao = correspondencias / palavrasBusca.length;
 
-    // Reduzido para 0.4 (40%) para capturar correspondências parciais com mais facilidade
-    if (pontuacao > maiorPontuacao && pontuacao >= 0.4) {
+    if (pontuacao > maiorPontuacao && pontuacao >= 0.3) { // Reduzido para 30%
       maiorPontuacao = pontuacao;
       melhorMatch = itemCupom;
     }
   }
 
-  return melhorMatch ? Number(melhorMatch.preco) : null;
+  const preco = melhorMatch ? (melhorMatch.preco || melhorMatch.precoUnitario || melhorMatch.val) : null;
+  return preco ? Number(preco) : null;
 };
 
 class ErrorBoundary extends React.Component {
@@ -172,6 +171,9 @@ function MainApp() {
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
+
+  // ESTADO PARA CASCATA/DROPDOWN DOS CUPONS
+  const [cuponsAbertos, setCuponsAbertos] = useState({});
 
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
@@ -730,7 +732,7 @@ function MainApp() {
     );
   }
 
-  // CÁLCULO DE COMPARAÇÃO COM DICIONÁRIO DE SINÔNIMOS INTEGRADO
+  // CÁLCULO DE COMPARAÇÃO
   const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0];
   const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
@@ -1079,7 +1081,7 @@ function MainApp() {
           </div>
         )}
 
-        {/* ABA CUPONS */}
+        {/* ABA CUPONS COM DROPDOWN EM CASCATA */}
         {activeTab === 'cupons' && (
           <div className="space-y-4">
             <div className="bg-purple-900 text-white p-5 rounded-3xl shadow-lg space-y-3">
@@ -1102,7 +1104,7 @@ function MainApp() {
             <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
-                  Cupons Salvos na Nuvem ({historicoCupons.length})
+                  Cupons Salvos ({historicoCupons.length})
                 </h3>
                 <button onClick={carregarCuponsDoBanco} className="text-xs text-purple-600 font-bold hover:underline">
                   🔄 Atualizar
@@ -1120,27 +1122,89 @@ function MainApp() {
                   <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta e acessíveis de qualquer dispositivo!</p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {(Array.isArray(historicoCupons) ? historicoCupons : []).map((cupom) => (
-                    <div 
-                      key={cupom.id} 
-                      className="bg-white border border-purple-200 rounded-2xl p-4 flex justify-between items-center shadow-sm"
-                    >
-                      <div>
-                        <h4 className="text-xs font-extrabold text-gray-800">{renderTexto(cupom.mercado)}</h4>
-                        <p className="text-[10px] text-purple-700 font-medium mt-0.5">
-                          📅 {renderTexto(cupom.data, 'Hoje')} às {renderTexto(cupom.hora, '')} · {cupom.itens?.length || 0} produtos identificados
-                        </p>
-                      </div>
+                <div className="space-y-3">
+                  {(Array.isArray(historicoCupons) ? historicoCupons : []).map((cupom) => {
+                    const estaAberto = !!cuponsAbertos[cupom.id];
+                    const itensDoCupom = Array.isArray(cupom.itens) ? cupom.itens : [];
 
-                      <button
-                        onClick={() => excluirCupom(cupom.id)}
-                        className="text-red-500 hover:bg-red-50 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                    return (
+                      <div 
+                        key={cupom.id} 
+                        className="bg-white border border-purple-200 rounded-2xl overflow-hidden shadow-sm"
                       >
-                        🗑️ Excluir
-                      </button>
-                    </div>
-                  ))}
+                        <div className="p-4 flex justify-between items-center gap-3">
+                          <div 
+                            onClick={() => setCuponsAbertos(p => ({ ...p, [cupom.id]: !p[cupom.id] }))}
+                            className="cursor-pointer flex-1 select-none"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-purple-700">{estaAberto ? '📂' : '📁'}</span>
+                              <h4 className="text-xs sm:text-sm font-extrabold text-gray-800">{renderTexto(cupom.mercado)}</h4>
+                            </div>
+                            <p className="text-[10px] text-purple-700 font-medium mt-0.5">
+                              📅 {renderTexto(cupom.data, 'Hoje')} às {renderTexto(cupom.hora, '')} · <span className="font-bold underline">{itensDoCupom.length} produtos gravados</span>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setCuponsAbertos(p => ({ ...p, [cupom.id]: !p[cupom.id] }))}
+                              className="text-xs font-bold text-purple-600 bg-purple-50 px-2.5 py-1.5 rounded-xl hover:bg-purple-100"
+                            >
+                              {estaAberto ? 'Esconder Produtos ▲' : 'Ver Produtos ▼'}
+                            </button>
+                            <button
+                              onClick={() => excluirCupom(cupom.id)}
+                              className="text-red-500 hover:bg-red-50 text-xs font-bold p-1.5 rounded-xl"
+                              title="Excluir Cupom"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* CASCATA DE PRODUTOS PUXADOS PELA SEFAZ */}
+                        {estaAberto && (
+                          <div className="bg-purple-50/50 p-3.5 border-t border-purple-100 space-y-2">
+                            <h5 className="text-[10px] font-extrabold text-purple-900 uppercase tracking-wider flex justify-between">
+                              <span>Produtos extraídos da SEFAZ:</span>
+                              <span className="text-[9px] text-purple-600 font-normal">Exibição exata do banco</span>
+                            </h5>
+
+                            {itensDoCupom.length === 0 ? (
+                              <p className="text-xs font-bold text-gray-500 italic p-2 bg-white rounded-xl border border-dashed text-center">
+                                Nenhum item foi extraído deste cupom (lista de produtos está vazia no banco).
+                              </p>
+                            ) : (
+                              <div className="divide-y divide-purple-100 bg-white rounded-xl border border-purple-200 overflow-hidden">
+                                {itensDoCupom.map((prod, pIdx) => {
+                                  const nomeProduto = prod.nome || prod.descricao || prod.product || prod.title || 'SEM NOME';
+                                  const precoProduto = prod.preco || prod.precoUnitario || prod.val || '0.00';
+                                  const qtdProduto = prod.qtd || prod.quantidade || 1;
+
+                                  return (
+                                    <div key={pIdx} className="p-2.5 flex justify-between items-center text-xs hover:bg-purple-50/30">
+                                      <div className="pr-2 min-w-0">
+                                        <span className="font-bold text-gray-800 block truncate uppercase">
+                                          {renderTexto(nomeProduto)}
+                                        </span>
+                                        <span className="text-[10px] text-gray-400 font-medium">
+                                          Qtd: {renderTexto(qtdProduto)}
+                                        </span>
+                                      </div>
+                                      <span className="font-black text-emerald-600 shrink-0">
+                                        R$ {Number(precoProduto).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
