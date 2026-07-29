@@ -391,7 +391,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Lista de Cupons Já Enviados */}
+          {/* Lista de Cupons Já Enviados. */}
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
             <h3 className="text-xs font-extrabold text-gray-700 uppercase tracking-wider mb-3">
               Cupons Compartilhados Recentemente
