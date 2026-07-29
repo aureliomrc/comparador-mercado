@@ -152,13 +152,20 @@ export default function Home() {
       }
     } catch (err) {
       console.error('Erro ao comparar preços:', err);
-    } finally {
+    } font-sans {
       setCarregandoComparacao(false);
     }
   }
 
   // Identifica a lista selecionada ativa com fallback para a primeira
   const listaAtual = listas.find((l) => l.id === listaSelecionada?.id) || listas[0];
+
+  // Helper para formatar datas com segurança
+  const formatarData = (dataString) => {
+    if (!dataString) return new Date().toLocaleDateString('pt-BR');
+    const d = new Date(dataString);
+    return isNaN(d.getTime()) ? new Date().toLocaleDateString('pt-BR') : d.toLocaleDateString('pt-BR');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 font-sans text-gray-900">
@@ -402,14 +409,14 @@ export default function Home() {
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="text-xs font-extrabold text-gray-800">
-                          {cupom.mercado?.nome || cupom.mercado || 'MERCADO'}
+                          {cupom.mercado?.nome || (typeof cupom.mercado === 'string' ? cupom.mercado : 'MERCADO')}
                         </h4>
                         <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded-full">
                           👥 Crowdsourcing
                         </span>
                       </div>
                       <p className="text-[10px] text-purple-700 font-medium mt-0.5">
-                        📅 {new Date(cupom.criadoEm || cupom.dataEmissao).toLocaleDateString('pt-BR')} · 
+                        📅 {formatarData(cupom.criadoEm || cupom.dataEmissao)} · 
                         Colaborador: <strong>@{cupom.usuario?.usuario || 'Comunidade'}</strong>
                       </p>
                     </div>
