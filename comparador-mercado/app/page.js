@@ -152,7 +152,7 @@ export default function Home() {
       }
     } catch (err) {
       console.error('Erro ao comparar preços:', err);
-    } font-sans {
+    } finally {
       setCarregandoComparacao(false);
     }
   }
