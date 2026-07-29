@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
+// Helper para exibição segura de textos/objetos
 const renderTexto = (val, fallback = '') => {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') {
@@ -10,19 +11,50 @@ const renderTexto = (val, fallback = '') => {
   return String(val);
 };
 
-// Função auxiliar para buscar o preço do item no cupom pelo nome
-const buscarPrecoNoCupom = (itemNome, cupomItens) => {
-  if (!Array.isArray(cupomItens) || cupomItens.length === 0) return null;
-  
-  const nomeBuscado = (itemNome || '').toLowerCase().trim();
-  
-  // Tenta encontrar uma correspondência direta ou parcial do nome
-  const itemEncontrado = cupomItens.find(i => {
-    const nomeCupom = (i.nome || '').toLowerCase().trim();
-    return nomeCupom.includes(nomeBuscado) || nomeBuscado.includes(nomeCupom);
-  });
+// 1. Normaliza e limpa o texto (remove acentos, pontuações e stop-words)
+const normalizarTexto = (texto) => {
+  if (!texto) return [];
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ') // Remove caracteres especiais
+    .split(/\s+/) // Transforma em array de palavras
+    .filter(palavra => palavra.length > 1 && !['de', 'da', 'do', 'com', 'para', 'em', 'sem', 'la', 'le'].includes(palavra));
+};
 
-  return itemEncontrado ? Number(itemEncontrado.preco) : null;
+// 2. Busca Inteligente por Tokens (Fuzzy Matching para notas fiscais)
+const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
+  if (!Array.isArray(cupomItens) || cupomItens.length === 0 || !itemNomeLista) return null;
+
+  const palavrasBusca = normalizarTexto(itemNomeLista);
+  if (palavrasBusca.length === 0) return null;
+
+  let melhorMatch = null;
+  let maiorPontuacao = 0;
+
+  for (const itemCupom of cupomItens) {
+    const palavrasCupom = normalizarTexto(itemCupom.nome);
+    
+    // Conta quantas palavras da sua lista aparecem no produto do cupom
+    let correspondencias = 0;
+    for (const palavra of palavrasBusca) {
+      if (palavrasCupom.some(p => p.includes(palavra) || palavra.includes(p))) {
+        correspondencias++;
+      }
+    }
+
+    // Calcula a porcentagem de palavras encontradas
+    const pontuacao = correspondencias / palavrasBusca.length;
+
+    // Exige pelo menos 50% de similaridade de palavras para considerar válido
+    if (pontuacao > maiorPontuacao && pontuacao >= 0.5) {
+      maiorPontuacao = pontuacao;
+      melhorMatch = itemCupom;
+    }
+  }
+
+  return melhorMatch ? Number(melhorMatch.preco) : null;
 };
 
 class ErrorBoundary extends React.Component {
@@ -651,7 +683,7 @@ function MainApp() {
     );
   }
 
-  // CÁLCULO DE COMPARAÇÃO ITEM A ITEM
+  // CÁLCULO DE COMPARAÇÃO COM INTELIGÊNCIA POR TOKEN/FUZZY MATCHING
   const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0];
   const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
@@ -683,7 +715,7 @@ function MainApp() {
       let origemPreco; // 'cupom' ou 'sefaz'
 
       if (mercado.isCupom) {
-        // Tenta buscar o preço do item diretamente nos produtos do cupom
+        // Tenta buscar o preço do item usando Fuzzy Match inteligente
         const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
         if (precoCupom !== null) {
           precoUn = precoCupom;
@@ -1004,6 +1036,7 @@ function MainApp() {
           </div>
         )}
 
+        {/* ABA CUPONS */}
         {activeTab === 'cupons' && (
           <div className="space-y-4">
             <div className="bg-purple-900 text-white p-5 rounded-3xl shadow-lg space-y-3">
