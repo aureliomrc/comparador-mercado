@@ -54,7 +54,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Erro ao buscar cupons do banco:', error);
-    } fontally {
+    } finally {
       setLoadingCupons(false);
     }
   };
