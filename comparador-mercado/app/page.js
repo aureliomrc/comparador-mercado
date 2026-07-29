@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// Função auxiliar para converter qualquer valor (objeto, null, undefined) em texto seguro
+// Função utilitária para converter qualquer valor para texto seguro
 const renderTexto = (val, fallback = '') => {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') {
@@ -70,7 +70,6 @@ function MainApp() {
   const [usuarioCadastro, setUsuarioCadastro] = useState('');
   const [senhaCadastro, setSenhaCadastro] = useState('');
   const [aceitouLgpd, setAceitouLgpd] = useState(false);
-  const [showTermosModal, setShowTermosModal] = useState(false);
 
   // Listas
   const [listas, setListas] = useState([]);
@@ -80,20 +79,19 @@ function MainApp() {
 
   // Comparação
   const [listaParaCompararId, setListaParaCompararId] = useState(null);
-  const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState([]);
-  const [usandoGeo, setUsandoGeo] = useState(false);
 
   // QR Code & Cupons
   const [showQrModal, setShowQrModal] = useState(false);
+  const [qrStep, setQrStep] = useState('scan'); // 'scan' | 'nome'
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [historicoCupons, setHistoricoCupons] = useState([]);
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef(null);
 
-  // BUSCAR CUPONS (Corrigido para 'finally')
+  // BUSCAR CUPONS
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
@@ -168,7 +166,7 @@ function MainApp() {
     setScreen('login');
   };
 
-  // CAMERA / SCANNER
+  // CAMERA / SCANNER FLUXO
   const pararScanner = async () => {
     if (qrScannerRef.current) {
       try {
@@ -199,30 +197,74 @@ function MainApp() {
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 200, height: 200 } },
           async (decodedText) => {
+            // Leitura bem sucedida: guarda a URL, para a câmera e avança para o Nome Fantasia
             setQrUrlInput(decodedText);
             await pararScanner();
-            alert(`✅ QR Code lido com sucesso!`);
+            setQrStep('nome');
           },
           () => {}
         );
       } catch (err) {
         console.error('Erro na câmera:', err);
-        setCameraError('Câmera indisponível. Digite os dados manualmente.');
+        setCameraError('Câmera indisponível. Digite a URL manualmente abaixo.');
       }
     }, 200);
   };
 
-  const abrirModalQr = () => setShowQrModal(true);
+  const abrirModalQr = () => {
+    setQrStep('scan');
+    setQrUrlInput('');
+    setNomeFantasiaInput('');
+    setShowQrModal(true);
+  };
+
   const fecharModalQr = async () => {
     await pararScanner();
     setShowQrModal(false);
+    setQrStep('scan');
+  };
+
+  const salvarCupom = async (e) => {
+    e.preventDefault();
+    if (!nomeFantasiaInput.trim()) return alert('Digite o Nome Fantasia do Mercado.');
+
+    try {
+      const res = await fetch('/api/cupons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: qrUrlInput,
+          mercado: nomeFantasiaInput.trim().toUpperCase(),
+          data: new Date().toLocaleDateString('pt-BR')
+        })
+      });
+
+      if (res.ok) {
+        const novoCupom = await res.json();
+        setHistoricoCupons(prev => [novoCupom, ...(Array.isArray(prev) ? prev : [])]);
+      } else {
+        // Fallback local caso a rota API não persista
+        setHistoricoCupons(prev => [
+          { id: Date.now(), mercado: nomeFantasiaInput.trim().toUpperCase(), data: new Date().toLocaleDateString('pt-BR') },
+          ...prev
+        ]);
+      }
+      await fecharModalQr();
+      alert('✅ Cupom registrado com sucesso!');
+    } catch (err) {
+      console.error('Erro ao salvar cupom:', err);
+      alert('Erro ao salvar cupom.');
+    }
   };
 
   useEffect(() => {
-    if (showQrModal) iniciarScanner();
-    else pararScanner();
+    if (showQrModal && qrStep === 'scan') {
+      iniciarScanner();
+    } else {
+      pararScanner();
+    }
     return () => { pararScanner(); };
-  }, [showQrModal]);
+  }, [showQrModal, qrStep]);
 
   // GEOLOCALIZAÇÃO
   const buscarMercadosProximos = () => {
@@ -244,7 +286,6 @@ function MainApp() {
               fatorPreco: Number((1 + (index * 0.03 - 0.02)).toFixed(2))
             }));
             setMercadosReais(mercadosEncontrados);
-            setUsandoGeo(true);
           } else {
             alert('Nenhum supermercado encontrado por GPS.');
           }
@@ -447,7 +488,7 @@ function MainApp() {
     );
   }
 
-  // PREPARAÇÃO SEGURA DE DADOS PARA COMPARAÇÃO
+  // PREPARAÇÃO DE DADOS PARA COMPARAÇÃO
   const listaSelecionada = (Array.isArray(listas) ? listas : []).find(
     l => renderTexto(l?.id) === renderTexto(listaParaCompararId)
   ) || (Array.isArray(listas) ? listas[0] : null);
@@ -606,9 +647,11 @@ function MainApp() {
             </button>
 
             <div className="space-y-2">
-              {(Array.isArray(historicoCupons) ? historicoCupons : []).map((c, idx) => (
+              {loadingCupons ? (
+                <p className="text-xs text-center text-gray-500 py-4">Carregando cupons...</p>
+              ) : (Array.isArray(historicoCupons) ? historicoCupons : []).map((c, idx) => (
                 <div key={renderTexto(c.id, `c_${idx}`)} className="bg-white p-3 rounded-2xl border flex justify-between items-center">
-                  <span className="text-xs font-bold">{renderTexto(c.mercado, 'CUPOM')}</span>
+                  <span className="text-xs font-bold text-gray-800">{renderTexto(c.mercado, 'MERCADO')}</span>
                   <span className="text-[10px] text-gray-400">{renderTexto(c.data, 'Hoje')}</span>
                 </div>
               ))}
@@ -626,15 +669,62 @@ function MainApp() {
         </div>
       </nav>
 
-      {/* MODAL QR CODE */}
+      {/* MODAL QR CODE RESTAURADO COM PASSO DE NOME FANTASIA */}
       {showQrModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold">Escanear QR Code</h3>
+              <h3 className="text-sm font-bold text-gray-800">
+                {qrStep === 'scan' ? 'Escanear QR Code' : 'Informar Mercado'}
+              </h3>
               <button onClick={fecharModalQr} className="text-gray-400 font-bold">✕</button>
             </div>
-            <div id="reader" className="w-full min-h-[200px] bg-black rounded-xl"></div>
+
+            {qrStep === 'scan' ? (
+              <div className="space-y-3">
+                <div id="reader" className="w-full min-h-[220px] bg-black rounded-xl overflow-hidden"></div>
+                {cameraError && <p className="text-xs text-red-500 font-semibold text-center">{cameraError}</p>}
+                
+                <div className="pt-2 border-t space-y-2">
+                  <label className="block text-[11px] text-gray-500 font-semibold">Ou digite/cole a URL da Nota Fiscal:</label>
+                  <input
+                    type="text"
+                    value={qrUrlInput}
+                    onChange={e => setQrUrlInput(e.target.value)}
+                    placeholder="https://nfce.fazenda..."
+                    className="w-full px-3 py-2 border rounded-xl text-xs bg-white text-gray-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!qrUrlInput.trim()) return alert('Insira uma URL válida');
+                      setQrStep('nome');
+                    }}
+                    className="w-full bg-purple-600 text-white font-bold py-2 rounded-xl text-xs"
+                  >
+                    Avançar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={salvarCupom} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Nome Fantasia do Estabelecimento</label>
+                  <input
+                    type="text"
+                    value={nomeFantasiaInput}
+                    onChange={e => setNomeFantasiaInput(e.target.value)}
+                    placeholder="EX: CARREFOUR, EXTRA, ASSAÍ"
+                    className="w-full px-4 py-2 border rounded-xl text-xs bg-white text-gray-900 uppercase"
+                    autoFocus
+                    required
+                  />
+                </div>
+                <button type="submit" className="w-full bg-[#0d824d] text-white font-bold py-2.5 rounded-xl text-xs">
+                  Salvar Cupom
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
