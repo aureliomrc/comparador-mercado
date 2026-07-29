@@ -50,11 +50,11 @@ export default function Home() {
       const res = await fetch('/api/cupons', { cache: 'no-store' });
       if (res.ok) {
         const dados = await res.json();
-        setHistoricoCupons(dados);
+        setHistoricoCupons(Array.isArray(dados) ? dados : []);
       }
     } catch (error) {
       console.error('Erro ao buscar cupons do banco:', error);
-    } finally {
+    } fontally {
       setLoadingCupons(false);
     }
   };
@@ -66,8 +66,8 @@ export default function Home() {
       const res = await fetch('/api/listas', { cache: 'no-store' });
       if (res.ok) {
         const dados = await res.json();
-        setListas(dados);
-        if (dados && dados.length > 0 && !listaParaCompararId) {
+        setListas(Array.isArray(dados) ? dados : []);
+        if (Array.isArray(dados) && dados.length > 0 && !listaParaCompararId) {
           setListaParaCompararId(dados[0].id);
         }
       }
@@ -104,8 +104,8 @@ export default function Home() {
     await carregarCuponsDoBanco();
   };
 
-  const handleLogout = () => {
-    pararScanner();
+  const handleLogout = async () => {
+    await pararScanner();
     setIsLogged(false);
     setListas([]);
     setHistoricoCupons([]);
@@ -115,12 +115,27 @@ export default function Home() {
   // ----------------------------------------------------
   // LEITOR DE QR CODE EM TEMPO REAL
   // ----------------------------------------------------
+  const pararScanner = async () => {
+    if (qrScannerRef.current) {
+      try {
+        if (qrScannerRef.current.isScanning) {
+          await qrScannerRef.current.stop();
+        }
+        qrScannerRef.current.clear();
+      } catch (err) {
+        console.warn("Aviso ao encerrar scanner:", err);
+      }
+      qrScannerRef.current = null;
+    }
+  };
+
   const iniciarScanner = async () => {
     setCameraError('');
+    await pararScanner();
+
     try {
-      if (qrScannerRef.current) {
-        await pararScanner();
-      }
+      const readerElement = document.getElementById("reader");
+      if (!readerElement) return;
 
       const html5QrCode = new Html5Qrcode("reader");
       qrScannerRef.current = html5QrCode;
@@ -130,30 +145,16 @@ export default function Home() {
       await html5QrCode.start(
         { facingMode: "environment" },
         config,
-        (decodedText) => {
+        async (decodedText) => {
           setQrUrlInput(decodedText);
-          pararScanner();
+          await pararScanner();
           alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
         },
         () => {}
       );
     } catch (err) {
       console.error('Erro ao iniciar câmera:', err);
-      setCameraError('Não foi possível abrir a câmera. Permita o acesso ou digite os dados abaixo.');
-    }
-  };
-
-  const pararScanner = async () => {
-    if (qrScannerRef.current) {
-      try {
-        if (qrScannerRef.current.isScanning) {
-          await qrScannerRef.current.stop();
-        }
-        qrScannerRef.current.clear();
-      } catch (err) {
-        console.error("Erro ao parar scanner:", err);
-      }
-      qrScannerRef.current = null;
+      setCameraError('Não foi possível abrir a câmera. Digite o nome do estabelecimento abaixo para continuar.');
     }
   };
 
@@ -161,20 +162,22 @@ export default function Home() {
     setShowQrModal(true);
   };
 
-  const fecharModalQr = () => {
-    pararScanner();
+  const fecharModalQr = async () => {
+    await pararScanner();
     setShowQrModal(false);
   };
 
   useEffect(() => {
+    let timer;
     if (showQrModal) {
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         iniciarScanner();
       }, 300);
-      return () => clearTimeout(timer);
-    } else {
-      pararScanner();
     }
+    return () => {
+      clearTimeout(timer);
+      pararScanner();
+    };
   }, [showQrModal]);
 
   // ----------------------------------------------------
@@ -247,15 +250,27 @@ export default function Home() {
 
       if (res.ok) {
         const cupomSalvo = await res.json();
-        setHistoricoCupons(prev => [cupomSalvo, ...prev]);
+        const agora = new Date();
+        const cupomTratado = {
+          id: cupomSalvo.id || Date.now(),
+          mercado: cupomSalvo.mercado || nomeEstabelecimento,
+          data: cupomSalvo.data || agora.toLocaleDateString('pt-BR'),
+          hora: cupomSalvo.hora || agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          fatorPreco: cupomSalvo.fatorPreco || 0.95,
+          tag: cupomSalvo.tag || 'CUPOM FISCAL',
+          corTag: cupomSalvo.corTag || 'bg-purple-100 text-purple-800'
+        };
+
+        setHistoricoCupons(prev => [cupomTratado, ...prev]);
         setQrUrlInput('');
         setNomeFantasiaInput('');
-        fecharModalQr();
+        await fecharModalQr();
       } else {
         alert('Erro ao salvar cupom no servidor.');
       }
     } catch (err) {
       console.error('Erro ao salvar cupom:', err);
+      alert('Erro de comunicação ao salvar cupom.');
     }
   };
 
@@ -621,13 +636,13 @@ export default function Home() {
   ];
 
   const cuponsFormatadosParaMercado = historicoCupons.map(c => ({
-    id: `cupom_${c.id}`,
+    id: `cupom_${c.id || Math.random()}`,
     idOriginalCupom: c.id,
-    nome: c.mercado,
-    distancia: `Bipado em ${c.data} às ${c.hora}`,
+    nome: c.mercado || 'MERCADO VIA CUPOM',
+    distancia: c.data && c.hora ? `Bipado em ${c.data} às ${c.hora}` : 'Cupom Recente',
     fatorPreco: c.fatorPreco || 0.95,
-    tag: c.tag,
-    corTag: c.corTag,
+    tag: c.tag || 'CUPOM FISCAL',
+    corTag: c.corTag || 'bg-purple-100 text-purple-800',
     isCupom: true
   }));
 
@@ -974,9 +989,9 @@ export default function Home() {
                       className="bg-white border border-purple-200 rounded-2xl p-4 flex justify-between items-center shadow-sm"
                     >
                       <div>
-                        <h4 className="text-xs font-extrabold text-gray-800">{cupom.mercado}</h4>
+                        <h4 className="text-xs font-extrabold text-gray-800">{cupom.mercado || 'ESTABELECIMENTO'}</h4>
                         <p className="text-[10px] text-purple-700 font-medium mt-0.5">
-                          📅 {cupom.data} às {cupom.hora}
+                          📅 {cupom.data || 'Hoje'} {cupom.hora ? `às ${cupom.hora}` : ''}
                         </p>
                       </div>
 
