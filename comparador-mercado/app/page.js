@@ -93,7 +93,7 @@ function MainApp() {
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef(null);
 
-  // BUSCAR CUPONS
+  // BUSCAR CUPONS (Corrigido para 'finally')
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
@@ -107,7 +107,7 @@ function MainApp() {
     } catch (error) {
       console.error('Erro ao buscar cupons:', error);
       setHistoricoCupons([]);
-    } fontally {
+    } finally {
       setLoadingCupons(false);
     }
   };
