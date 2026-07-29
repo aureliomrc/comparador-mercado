@@ -1,44 +1,50 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
-// Simulação de tabela no banco de dados (substitua pela query do seu banco se usar Prisma/PostgreSQL/MongoDB)
-let cuponsBanco = [];
-
-// GET: Buscar todos os cupons salvos no banco
+// GET: Busca todos os cupons compartilhados pela comunidade no PostgreSQL via Prisma
 export async function GET() {
-  return NextResponse.json(cuponsBanco);
+  try {
+    const cupons = await prisma.cupomFiscal.findMany({
+      orderBy: { criadoEm: 'desc' },
+    });
+    return NextResponse.json(cupons);
+  } catch (error) {
+    return NextResponse.json({ error: 'Erro ao buscar cupons.' }, { status: 500 });
+  }
 }
 
-// POST: Salvar um novo cupom no banco
+// POST: Recebe o QR Code bipado e salva na base pública
 export async function POST(request) {
   try {
     const body = await request.json();
-    const novoCupom = {
-      id: Date.now(),
-      data: new Date().toLocaleDateString('pt-BR'),
-      hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      mercado: body.mercado || 'MERCADO VIA QR CODE',
-      fatorPreco: body.fatorPreco || 0.95,
-      url: body.url || '',
-      tag: '🧾 CUPOM BIPADO',
-      corTag: 'bg-purple-100 text-purple-800'
-    };
+    const { mercado, urlQrCode, usuarioColaborador } = body;
 
-    cuponsBanco.unshift(novoCupom);
+    const novoCupom = await prisma.cupomFiscal.create({
+      data: {
+        mercado,
+        urlQrCode,
+        usuarioColaborador,
+      },
+    });
+
     return NextResponse.json(novoCupom, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: 'Erro ao salvar cupom' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao salvar cupom.' }, { status: 500 });
   }
 }
 
-// DELETE: Remover um cupom do banco
+// DELETE: Deleta um cupom por ID
 export async function DELETE(request) {
-  const { searchParams } = new URL(request.url);
-  const id = Number(searchParams.get('id'));
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
 
-  if (id) {
-    cuponsBanco = cuponsBanco.filter(c => c.id !== id);
+    await prisma.cupomFiscal.delete({
+      where: { id: String(id) },
+    });
+
     return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Erro ao deletar cupom.' }, { status: 500 });
   }
-
-  return NextResponse.json({ error: 'ID não informado' }, { status: 400 });
 }

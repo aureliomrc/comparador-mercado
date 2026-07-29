@@ -1,7 +1,6 @@
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -9,12 +8,13 @@ generator client {
 }
 
 model Usuario {
-  id        String   @id @default(uuid())
+  id        String        @id @default(uuid())
   nome      String
-  cpf       String   @unique
-  usuario   String   @unique
+  cpf       String        @unique
+  usuario   String        @unique
   senha     String
-  createdAt DateTime @default(now())
+  createdAt DateTime      @default(now())
+  cupons    CupomFiscal[]
 
   @@map("Usuario")
 }
@@ -41,4 +41,69 @@ model Item {
   lista         Lista    @relation(fields: [listaId], references: [id], onDelete: Cascade)
 
   @@map("ItemLista")
+}
+
+// ----------------------------------------------------
+// NOVAS TABELAS CONVERTIDAS PARA O PRISMA (CROWDSOURCING & SEFAZ)
+// ----------------------------------------------------
+
+model Mercado {
+  id              Int                     @id @default(autoincrement())
+  nome            String
+  cupons          CupomFiscal[]
+  historicoPrecos HistoricoPrecoPublico[]
+
+  @@map("mercados")
+}
+
+model Produto {
+  id              Int                     @id @default(autoincrement())
+  nome            String
+  itensCupom      ItemCupom[]
+  historicoPrecos HistoricoPrecoPublico[]
+
+  @@map("produtos")
+}
+
+model CupomFiscal {
+  id                 Int         @id @default(autoincrement())
+  chaveAcesso        String      @unique @map("chave_acesso")
+  usuarioId          String?     @map("usuario_id")
+  mercadoId          Int?        @map("mercado_id")
+  dataEmissao        DateTime    @map("data_emissao")
+  valorTotal         Decimal     @map("valor_total") @db.Decimal(10, 2)
+  criadoEm           DateTime    @default(now()) @map("criado_em")
+  
+  usuario            Usuario?    @relation(fields: [usuarioId], references: [id])
+  mercado            Mercado?    @relation(fields: [mercadoId], references: [id])
+  itens              ItemCupom[]
+
+  @@map("cupons_fiscais")
+}
+
+model ItemCupom {
+  id            Int         @id @default(autoincrement())
+  cupomId       Int         @map("cupom_id")
+  produtoId     Int         @map("produto_id")
+  precoUnitario Decimal     @map("preco_unitario") @db.Decimal(10, 2)
+  quantidade    Decimal     @db.Decimal(10, 3)
+  
+  cupom         CupomFiscal @relation(fields: [cupomId], references: [id], onDelete: Cascade)
+  produto       Produto     @relation(fields: [produtoId], references: [id])
+
+  @@map("itens_cupom")
+}
+
+model HistoricoPrecoPublico {
+  id           Int      @id @default(autoincrement())
+  produtoId    Int      @map("produto_id")
+  mercadoId    Int      @map("mercado_id")
+  preco        Decimal  @db.Decimal(10, 2)
+  atualizadoEm DateTime @default(now()) @map("atualizado_em")
+  origem       String   @default("NFC-e")
+
+  produto      Produto  @relation(fields: [produtoId], references: [id])
+  mercado      Mercado  @relation(fields: [mercadoId], references: [id])
+
+  @@map("historico_precos_publico")
 }

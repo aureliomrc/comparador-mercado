@@ -43,7 +43,7 @@ export default function Home() {
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef(null);
 
-  // BUSCAR CUPONS DO BANCO DE DADOS
+  // BUSCAR TODOS OS CUPONS PÚBLICOS DO BANCO DE DADOS (CROWDSOURCING)
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
@@ -53,7 +53,7 @@ export default function Home() {
         setHistoricoCupons(dados);
       }
     } catch (error) {
-      console.error('Erro ao buscar cupons do banco:', error);
+      console.error('Erro ao buscar cupons públicos do banco:', error);
     } finally {
       setLoadingCupons(false);
     }
@@ -224,7 +224,7 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // SALVAR CUPOM NO BANCO DE DADOS
+  // SALVAR CUPOM NO BANCO DE DADOS (CROWDSOURCING PÚBLICO)
   // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
@@ -240,29 +240,39 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mercado: nomeEstabelecimento,
-          url: qrUrlInput,
-          fatorPreco: (0.85 + Math.random() * 0.25)
+          urlQrCode: qrUrlInput,
+          usuarioColaborador: usuario
         })
       });
 
       if (res.ok) {
-        const cupomSalvo = await res.json();
-        setHistoricoCupons(prev => [cupomSalvo, ...prev]);
+        alert('🎉 Cupom registrado com sucesso! Preços atualizados para toda a comunidade.');
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
+        await carregarCuponsDoBanco();
       } else {
-        alert('Erro ao salvar cupom no servidor.');
+        const errData = await res.json();
+        alert(`Erro: ${errData.erro || 'Não foi possível salvar o cupom.'}`);
       }
     } catch (err) {
       console.error('Erro ao salvar cupom:', err);
+      alert('Erro de conexão ao tentar salvar o cupom.');
     }
   };
 
   const excluirCupom = async (id) => {
     if (confirm('Deseja excluir este cupom do banco de dados?')) {
-      setHistoricoCupons(prev => prev.filter(c => c.id !== id));
-      await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
+      try {
+        const res = await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+        } else {
+          alert('Erro ao excluir cupom.');
+        }
+      } catch (err) {
+        console.error('Erro ao excluir cupom:', err);
+      }
     }
   };
 
@@ -624,10 +634,10 @@ export default function Home() {
     id: `cupom_${c.id}`,
     idOriginalCupom: c.id,
     nome: c.mercado,
-    distancia: `Bipado em ${c.data} às ${c.hora}`,
-    fatorPreco: c.fatorPreco || 0.95,
-    tag: c.tag,
-    corTag: c.corTag,
+    distancia: `Bipado em ${c.data || 'recente'} por @${c.usuario_colaborador || 'Comunidade'}`,
+    fatorPreco: 0.95,
+    tag: 'CROWDSOURCING',
+    corTag: 'bg-purple-100 text-purple-800',
     isCupom: true
   }));
 
@@ -932,8 +942,8 @@ export default function Home() {
               <div className="flex items-center gap-3">
                 <span className="text-3xl">🧾</span>
                 <div>
-                  <h3 className="text-base font-extrabold">Cupons Fiscais</h3>
-                  <p className="text-xs text-purple-200 font-medium">Bipe QR Codes de notas fiscais para atualizar preços no seu app.</p>
+                  <h3 className="text-base font-extrabold">Cupons Fiscais (Crowdsourcing)</h3>
+                  <p className="text-xs text-purple-200 font-medium">Bipe QR Codes para compartilhar ofertas com a comunidade.</p>
                 </div>
               </div>
 
@@ -945,11 +955,11 @@ export default function Home() {
               </button>
             </div>
 
-            {/* HISTÓRICO DE CUPONS DO BANCO DE DADOS */}
+            {/* HISTÓRICO DE CUPONS COMPARTILHADOS NA NUVEM */}
             <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
-                  Cupons Salvos na Nuvem ({historicoCupons.length})
+                  Cupons Públicos da Comunidade ({historicoCupons.length})
                 </h3>
                 <button onClick={carregarCuponsDoBanco} className="text-xs text-purple-600 font-bold hover:underline">
                   🔄 Atualizar
@@ -958,13 +968,13 @@ export default function Home() {
 
               {loadingCupons ? (
                 <div className="bg-white p-6 rounded-2xl text-center border">
-                  <p className="text-xs font-bold text-gray-500">Buscando cupons salvos...</p>
+                  <p className="text-xs font-bold text-gray-500">Carregando dados da comunidade...</p>
                 </div>
               ) : historicoCupons.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
-                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta e acessíveis de qualquer dispositivo!</p>
+                  <p className="text-xs font-bold text-gray-700">Nenhum cupom compartilhado ainda.</p>
+                  <p className="text-[11px] text-gray-400">Seja o primeiro a bipar um QR Code e ajudar outros usuários!</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -974,9 +984,14 @@ export default function Home() {
                       className="bg-white border border-purple-200 rounded-2xl p-4 flex justify-between items-center shadow-sm"
                     >
                       <div>
-                        <h4 className="text-xs font-extrabold text-gray-800">{cupom.mercado}</h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-extrabold text-gray-800">{cupom.mercado}</h4>
+                          <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded-full">
+                            👥 Crowdsourcing
+                          </span>
+                        </div>
                         <p className="text-[10px] text-purple-700 font-medium mt-0.5">
-                          📅 {cupom.data} às {cupom.hora}
+                          📅 {cupom.data} às {cupom.hora || '12:00'} · Colaborador: <strong>@{cupom.usuario_colaborador || 'Anônimo'}</strong>
                         </p>
                       </div>
 
