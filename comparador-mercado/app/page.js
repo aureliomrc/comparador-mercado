@@ -1,8 +1,49 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-export default function Home() {
+// ----------------------------------------------------
+// COMPONENTE DE FRONTEIRA DE ERRO (Para capturar erros sem derrubar a página)
+// ----------------------------------------------------
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, errorInfo: error.toString() };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Erro capturado no React:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 bg-red-50 text-red-900 rounded-2xl m-4 border border-red-200">
+          <h2 className="font-bold text-lg mb-2">Ops! Ocorreu um erro no aplicativo.</h2>
+          <p className="text-xs font-mono bg-red-100 p-3 rounded mb-4 overflow-auto">
+            {this.state.errorInfo}
+          </p>
+          <button
+            onClick={() => {
+              this.setState({ hasError: false });
+              window.location.reload();
+            }}
+            className="bg-red-600 text-white text-xs font-bold px-4 py-2 rounded-xl"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function MainApp() {
   const [screen, setScreen] = useState('login');
   const [isLogged, setIsLogged] = useState(false);
   const [loadingListas, setLoadingListas] = useState(false);
@@ -51,9 +92,12 @@ export default function Home() {
       if (res.ok) {
         const dados = await res.json();
         setHistoricoCupons(Array.isArray(dados) ? dados : []);
+      } else {
+        setHistoricoCupons([]);
       }
     } catch (error) {
       console.error('Erro ao buscar cupons do banco:', error);
+      setHistoricoCupons([]);
     } finally {
       setLoadingCupons(false);
     }
@@ -66,13 +110,17 @@ export default function Home() {
       const res = await fetch('/api/listas', { cache: 'no-store' });
       if (res.ok) {
         const dados = await res.json();
-        setListas(Array.isArray(dados) ? dados : []);
-        if (Array.isArray(dados) && dados.length > 0 && !listaParaCompararId) {
-          setListaParaCompararId(dados[0].id);
+        const listaTratada = Array.isArray(dados) ? dados : [];
+        setListas(listaTratada);
+        if (listaTratada.length > 0 && !listaParaCompararId) {
+          setListaParaCompararId(listaTratada[0].id);
         }
+      } else {
+        setListas([]);
       }
     } catch (error) {
       console.error('Erro ao conectar com o banco:', error);
+      setListas([]);
     } finally {
       setLoadingListas(false);
     }
@@ -113,7 +161,7 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // LEITOR DE QR CODE EM TEMPO REAL
+  // MANIPULAÇÃO SEGURA DO QR CODE
   // ----------------------------------------------------
   const pararScanner = async () => {
     if (qrScannerRef.current) {
@@ -121,9 +169,9 @@ export default function Home() {
         if (qrScannerRef.current.isScanning) {
           await qrScannerRef.current.stop();
         }
-        qrScannerRef.current.clear();
+        await qrScannerRef.current.clear();
       } catch (err) {
-        console.warn("Aviso ao encerrar scanner:", err);
+        console.warn("Aviso de limpeza do scanner:", err);
       }
       qrScannerRef.current = null;
     }
@@ -133,29 +181,31 @@ export default function Home() {
     setCameraError('');
     await pararScanner();
 
-    try {
-      const readerElement = document.getElementById("reader");
-      if (!readerElement) return;
+    setTimeout(async () => {
+      try {
+        const readerElement = document.getElementById("reader");
+        if (!readerElement) return;
 
-      const html5QrCode = new Html5Qrcode("reader");
-      qrScannerRef.current = html5QrCode;
+        const html5QrCode = new Html5Qrcode("reader");
+        qrScannerRef.current = html5QrCode;
 
-      const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+        const config = { fps: 10, qrbox: { width: 200, height: 200 } };
 
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        async (decodedText) => {
-          setQrUrlInput(decodedText);
-          await pararScanner();
-          alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
-        },
-        () => {}
-      );
-    } catch (err) {
-      console.error('Erro ao iniciar câmera:', err);
-      setCameraError('Não foi possível abrir a câmera. Digite o nome do estabelecimento abaixo para continuar.');
-    }
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          config,
+          async (decodedText) => {
+            setQrUrlInput(decodedText);
+            await pararScanner();
+            alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
+          },
+          () => {}
+        );
+      } catch (err) {
+        console.error('Erro ao iniciar câmera:', err);
+        setCameraError('Permissão de câmera negada ou indisponível. Digite os dados manualmente.');
+      }
+    }, 200);
   };
 
   const abrirModalQr = () => {
@@ -168,14 +218,12 @@ export default function Home() {
   };
 
   useEffect(() => {
-    let timer;
     if (showQrModal) {
-      timer = setTimeout(() => {
-        iniciarScanner();
-      }, 300);
+      iniciarScanner();
+    } else {
+      pararScanner();
     }
     return () => {
-      clearTimeout(timer);
       pararScanner();
     };
   }, [showQrModal]);
@@ -200,7 +248,7 @@ export default function Home() {
           const response = await fetch(url);
           const data = await response.json();
 
-          if (data.elements && data.elements.length > 0) {
+          if (data && Array.isArray(data.elements) && data.elements.length > 0) {
             const mercadosEncontrados = data.elements.map((el, index) => ({
               id: `geo_${el.id || index}`,
               nome: (el.tags?.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
@@ -210,7 +258,7 @@ export default function Home() {
             setMercadosReais(mercadosEncontrados);
             setUsandoGeo(true);
           } else {
-            alert('Nenhum supermercado encontrado próximo via GPS. Exibindo simulados.');
+            alert('Nenhum supermercado encontrado próximo via GPS. Usando base padrão.');
           }
         } catch (err) {
           console.error('Erro ao buscar mercados via GPS:', err);
@@ -220,14 +268,14 @@ export default function Home() {
       },
       (error) => {
         console.error('Erro de GPS:', error);
-        alert('Não foi possível obter sua localização. Verifique as permissões.');
+        alert('Não foi possível obter sua localização.');
         setLoadingGeo(false);
       }
     );
   };
 
   // ----------------------------------------------------
-  // SALVAR CUPOM NO BANCO DE DADOS
+  // SALVAR CUPOM
   // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
@@ -261,7 +309,7 @@ export default function Home() {
           corTag: cupomSalvo?.corTag || 'bg-purple-100 text-purple-800'
         };
 
-        setHistoricoCupons(prev => [cupomTratado, ...prev]);
+        setHistoricoCupons(prev => [cupomTratado, ...(Array.isArray(prev) ? prev : [])]);
         setQrUrlInput('');
         setNomeFantasiaInput('');
         await fecharModalQr();
@@ -276,7 +324,7 @@ export default function Home() {
 
   const excluirCupom = async (id) => {
     if (confirm('Deseja excluir este cupom do banco de dados?')) {
-      setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+      setHistoricoCupons(prev => (Array.isArray(prev) ? prev.filter(c => c.id !== id) : []));
       await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
     }
   };
@@ -293,7 +341,7 @@ export default function Home() {
   };
 
   // ----------------------------------------------------
-  // AÇÕES DAS LISTAS
+  // LISTAS & ITENS
   // ----------------------------------------------------
   const criarNovaLista = async (e) => {
     e.preventDefault();
@@ -308,7 +356,7 @@ export default function Home() {
 
       if (res.ok) {
         const novaListaCriada = await res.json();
-        setListas(prev => [novaListaCriada, ...prev]);
+        setListas(prev => [novaListaCriada, ...(Array.isArray(prev) ? prev : [])]);
         setListaParaCompararId(novaListaCriada.id);
         setNovaListaNome('');
       } else {
@@ -355,9 +403,9 @@ export default function Home() {
 
       if (res.ok) {
         const itemSalvo = await res.json();
-        setListas(prevListas => prevListas.map(l => {
+        setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
           if (l.id === listaId) {
-            return { ...l, itens: [...(l.itens || []), itemSalvo] };
+            return { ...l, itens: [...(Array.isArray(l.itens) ? l.itens : []), itemSalvo] };
           }
           return l;
         }));
@@ -371,13 +419,13 @@ export default function Home() {
   const alterarQuantidade = async (listaId, itemId, delta) => {
     let novaQtd = 1;
 
-    setListas(prevListas => prevListas.map(l => {
+    setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
       if (l.id === listaId) {
         return {
           ...l,
-          itens: (l.itens || []).map(item => {
+          itens: (Array.isArray(l.itens) ? l.itens : []).map(item => {
             if (item.id === itemId) {
-              novaQtd = Math.max(1, (item.qtd || 1) + delta);
+              novaQtd = Math.max(1, (Number(item.qtd) || 1) + delta);
               return { ...item, qtd: novaQtd };
             }
             return item;
@@ -395,17 +443,17 @@ export default function Home() {
   };
 
   const removerItem = async (listaId, itemId) => {
-    setListas(prev => prev.map(l => l.id === listaId ? { ...l, itens: (l.itens || []).filter(i => i.id !== itemId) } : l));
+    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter(i => i.id !== itemId) } : l));
     await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
   };
 
   const toggleCheck = async (listaId, itemId) => {
     let novoMarcado = false;
-    setListas(prev => prev.map(l => {
+    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => {
       if (l.id === listaId) {
         return {
           ...l,
-          itens: (l.itens || []).map(i => {
+          itens: (Array.isArray(l.itens) ? l.itens : []).map(i => {
             if (i.id === itemId) {
               novoMarcado = !i.marcado;
               return { ...i, marcado: novoMarcado };
@@ -426,7 +474,7 @@ export default function Home() {
 
   const deletarLista = async (id) => {
     if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
-      setListas(prev => prev.filter(l => l.id !== id));
+      setListas(prev => (Array.isArray(prev) ? prev.filter(l => l.id !== id) : []));
       if (listaParaCompararId === id) setListaParaCompararId(listas[0]?.id || null);
       await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
     }
@@ -604,8 +652,6 @@ export default function Home() {
                 <p>A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos segundo a LGPD (Lei nº 13.709/2018).</p>
                 <p className="font-bold text-gray-800">2. Coleta de Informações</p>
                 <p>Coletamos seu nome completo, e-mail e geolocalização exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos.</p>
-                <p className="font-bold text-gray-800">3. Uso das Informações</p>
-                <p>Seus dados são utilizados para personalizar suas listas, comparar preços e otimizar sua experiência na plataforma.</p>
               </div>
 
               <div className="border-t pt-3 flex justify-end">
@@ -628,11 +674,11 @@ export default function Home() {
   }
 
   // ----------------------------------------------------
-  // LÓGICA DE CÁLCULO SEGURA PARA A ABA COMPARAR
+  // CÁLCULOS SEGUROS PARA A ABA COMPARAR
   // ----------------------------------------------------
-  const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
+  const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l?.id === listaParaCompararId) || (Array.isArray(listas) ? listas[0] : null);
 
-  const baseMercados = mercadosReais.length > 0 ? mercadosReais : [
+  const baseMercados = (Array.isArray(mercadosReais) && mercadosReais.length > 0) ? mercadosReais : [
     { id: 'm_101', nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
     { id: 'm_102', nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
     { id: 'm_103', nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
@@ -640,30 +686,30 @@ export default function Home() {
 
   const cuponsFormatadosParaMercado = Array.isArray(historicoCupons) 
     ? historicoCupons.map((c, index) => ({
-        id: `cupom_comp_${c.id || index}_${c.data || 'hoje'}`,
-        idOriginalCupom: c.id || index,
-        nome: c.mercado || 'MERCADO VIA CUPOM',
-        distancia: c.data && c.hora ? `Bipado em ${c.data} às ${c.hora}` : 'Cupom Recente',
-        fatorPreco: Number(c.fatorPreco) || 0.95,
-        tag: c.tag || 'CUPOM FISCAL',
-        corTag: c.corTag || 'bg-purple-100 text-purple-800',
+        id: `cupom_comp_${c?.id || index}`,
+        idOriginalCupom: c?.id || index,
+        nome: c?.mercado || 'MERCADO VIA CUPOM',
+        distancia: c?.data ? `Bipado em ${c.data}` : 'Cupom Recente',
+        fatorPreco: Number(c?.fatorPreco) || 0.95,
+        tag: c?.tag || 'CUPOM FISCAL',
+        corTag: c?.corTag || 'bg-purple-100 text-purple-800',
         isCupom: true
       }))
     : [];
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
-  const itensDaListaAtiva = listaSelecionada?.itens || [];
+  const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
   const totalBase = itensDaListaAtiva.reduce((acc, item) => {
-    const preco = Number(item.precoEstimado) || 8.5;
-    const quantidade = Number(item.qtd) || 1;
+    const preco = Number(item?.precoEstimado) || 8.5;
+    const quantidade = Number(item?.qtd) || 1;
     return acc + (preco * quantidade);
   }, 0);
 
-  const listaMercadosOrdenados = todosMercadosECupons.map(item => {
-    const fator = Number(item.fatorPreco) || 1;
+  const listaMercadosOrdenados = todosMercadosECupons.map((item, idx) => {
+    const fator = Number(item?.fatorPreco) || 1;
     const totalCalculado = Number((totalBase * fator).toFixed(2));
-    return { ...item, totalCalculado };
+    return { ...item, totalCalculado, idUnico: item?.id || `mercado_${idx}` };
   }).sort((a, b) => a.totalCalculado - b.totalCalculado);
 
   return (
@@ -676,7 +722,7 @@ export default function Home() {
           </h1>
           <div className="flex items-center gap-2">
             <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-              👤 {usuario.toUpperCase()}
+              👤 {(usuario || 'USUÁRIO').toUpperCase()}
             </span>
             <button onClick={handleLogout} className="text-xs font-bold text-red-500 hover:underline">
               Sair
@@ -729,13 +775,13 @@ export default function Home() {
                   <p className="text-xs font-bold text-gray-700">Nenhuma lista encontrada.</p>
                   <p className="text-[11px] text-gray-400">Crie uma nova lista acima para começar!</p>
                 </div>
-              ) : listas.map((lista) => {
+              ) : listas.map((lista, lIdx) => {
                 const estaAberta = !!listasAbertas[lista.id];
                 const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
-                const itensLista = lista.itens || [];
+                const itensLista = Array.isArray(lista.itens) ? lista.itens : [];
 
                 return (
-                  <div key={lista.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div key={lista.id || `lista_key_${lIdx}`} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div 
                       onClick={() => {
                         setListasAbertas(p => ({ ...p, [lista.id]: !p[lista.id] }));
@@ -785,8 +831,8 @@ export default function Home() {
                         </form>
 
                         <div className="divide-y">
-                          {itensLista.map(item => (
-                            <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
+                          {itensLista.map((item, iIdx) => (
+                            <div key={item.id || `item_key_${iIdx}`} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
                               <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                 <input
                                   type="checkbox"
@@ -839,7 +885,7 @@ export default function Home() {
                   onChange={(e) => setListaParaCompararId(e.target.value)}
                   className="w-full bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2.5 focus:outline-none"
                 >
-                  {listas.map(l => (
+                  {(Array.isArray(listas) ? listas : []).map(l => (
                     <option key={l.id} value={l.id}>
                       {l.nome} ({l.itens?.length || 0} itens)
                     </option>
@@ -866,17 +912,17 @@ export default function Home() {
             ) : (
               <div className="space-y-3">
                 {listaMercadosOrdenados.map((mercado, idx) => {
-                  const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
+                  const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.idUnico;
                   const eOMaisBarato = idx === 0;
 
                   return (
                     <div 
-                      key={mercado.id || `mercado_idx_${idx}`} 
+                      key={mercado.idUnico} 
                       className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-white border-gray-200'} ${eOMaisBarato ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
                     >
                       <div className="p-4 flex items-center justify-between gap-3">
                         <div 
-                          onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
+                          onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.idUnico)}
                           className="space-y-1 flex-1 cursor-pointer select-none"
                         >
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -904,7 +950,7 @@ export default function Home() {
                           <span className="text-[9px] text-gray-400 font-bold block uppercase">Total Estimado</span>
                           <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
                           <button
-                            onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
+                            onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.idUnico)}
                             className="text-[10px] text-emerald-700 font-bold underline mt-0.5"
                           >
                             {estaAbertoDetalhe ? 'Ver Menos' : 'Ver Detalhes'}
@@ -918,19 +964,19 @@ export default function Home() {
                             Estimativa de Itens ({mercado.nome}):
                           </h5>
                           <div className="divide-y divide-gray-200">
-                            {itensDaListaAtiva.map(item => {
-                              const precoBase = Number(item.precoEstimado) || 8.5;
-                              const fator = Number(mercado.fatorPreco) || 1;
+                            {itensDaListaAtiva.map((item, itemIdx) => {
+                              const precoBase = Number(item?.precoEstimado) || 8.5;
+                              const fator = Number(mercado?.fatorPreco) || 1;
                               const precoUn = Number((precoBase * fator).toFixed(2));
-                              const qtd = Number(item.qtd) || 1;
+                              const qtd = Number(item?.qtd) || 1;
                               const subtotal = Number((precoUn * qtd).toFixed(2));
-                              const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
+                              const marcaExibicao = item?.marca || obterMarcaParaItem(item?.nome);
 
                               return (
-                                <div key={item.id || `item_detalhe_${Math.random()}`} className="py-2 flex justify-between items-center text-xs">
+                                <div key={item?.id || `sub_item_${itemIdx}`} className="py-2 flex justify-between items-center text-xs">
                                   <div>
                                     <div className="flex items-center gap-1.5">
-                                      <span className="font-bold text-gray-800">{item.nome}</span>
+                                      <span className="font-bold text-gray-800">{item?.nome}</span>
                                       <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
                                         🏷️ {marcaExibicao}
                                       </span>
@@ -992,7 +1038,7 @@ export default function Home() {
               ) : historicoCupons.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
+                  <p className="text-xs font-bold text-gray-700">Nenum cupom bipado até o momento.</p>
                   <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta!</p>
                 </div>
               ) : (
@@ -1117,5 +1163,14 @@ export default function Home() {
         </div>
       )}
     </div>
+  );
+}
+
+// Exportação principal protegida pelo Error Boundary
+export default function Home() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
   );
 }
