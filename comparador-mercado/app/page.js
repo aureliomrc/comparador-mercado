@@ -2,17 +2,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
+// Função auxiliar para converter qualquer valor (objeto, null, undefined) em texto seguro
+const renderTexto = (val, fallback = '') => {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === 'object') {
+    return val.nome || val.name || val.title || val.id || JSON.stringify(val);
+  }
+  return String(val);
+};
+
 // ----------------------------------------------------
-// COMPONENTE DE FRONTEIRA DE ERRO (Para capturar erros sem derrubar a página)
+// COMPONENTE DE FRONTEIRA DE ERRO (Error Boundary)
 // ----------------------------------------------------
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, errorInfo: null };
+    this.state = { hasError: false, errorInfo: '' };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true, errorInfo: error.toString() };
+    return { hasError: true, errorInfo: error?.toString() || 'Erro desconhecido' };
   }
 
   componentDidCatch(error, errorInfo) {
@@ -24,7 +33,7 @@ class ErrorBoundary extends React.Component {
       return (
         <div className="p-6 bg-red-50 text-red-900 rounded-2xl m-4 border border-red-200">
           <h2 className="font-bold text-lg mb-2">Ops! Ocorreu um erro no aplicativo.</h2>
-          <p className="text-xs font-mono bg-red-100 p-3 rounded mb-4 overflow-auto">
+          <p className="text-xs font-mono bg-red-100 p-3 rounded mb-4 overflow-auto break-all">
             {this.state.errorInfo}
           </p>
           <button
@@ -32,7 +41,7 @@ class ErrorBoundary extends React.Component {
               this.setState({ hasError: false });
               window.location.reload();
             }}
-            className="bg-red-600 text-white text-xs font-bold px-4 py-2 rounded-xl"
+            className="bg-red-600 text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-red-700"
           >
             Tentar Novamente
           </button>
@@ -48,14 +57,14 @@ function MainApp() {
   const [isLogged, setIsLogged] = useState(false);
   const [loadingListas, setLoadingListas] = useState(false);
   const [loadingCupons, setLoadingCupons] = useState(false);
-  const [activeTab, setActiveTab] = useState('listas'); // 'listas' | 'comparar' | 'cupons'
+  const [activeTab, setActiveTab] = useState('listas');
 
-  // Autenticação e Cadastro
+  // Autenticação
   const [authMode, setAuthMode] = useState('login');
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   
-  // Campos de Cadastro
+  // Cadastro
   const [nomeCompleto, setNomeCompleto] = useState('');
   const [emailCadastro, setEmailCadastro] = useState('');
   const [usuarioCadastro, setUsuarioCadastro] = useState('');
@@ -63,20 +72,20 @@ function MainApp() {
   const [aceitouLgpd, setAceitouLgpd] = useState(false);
   const [showTermosModal, setShowTermosModal] = useState(false);
 
-  // Listas de Compras
+  // Listas
   const [listas, setListas] = useState([]);
   const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState({});
 
-  // Comparação e Geolocalização
+  // Comparação
   const [listaParaCompararId, setListaParaCompararId] = useState(null);
   const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  // Modais de QR Code / Cupom Fiscal / Histórico
+  // QR Code & Cupons
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
@@ -84,7 +93,7 @@ function MainApp() {
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef(null);
 
-  // BUSCAR CUPONS DO BANCO DE DADOS
+  // BUSCAR CUPONS
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
@@ -96,14 +105,14 @@ function MainApp() {
         setHistoricoCupons([]);
       }
     } catch (error) {
-      console.error('Erro ao buscar cupons do banco:', error);
+      console.error('Erro ao buscar cupons:', error);
       setHistoricoCupons([]);
-    } finally {
+    } fontally {
       setLoadingCupons(false);
     }
   };
 
-  // BUSCAR LISTAS DO BANCO DE DADOS
+  // BUSCAR LISTAS
   const carregarListasDoBanco = async () => {
     setLoadingListas(true);
     try {
@@ -113,13 +122,13 @@ function MainApp() {
         const listaTratada = Array.isArray(dados) ? dados : [];
         setListas(listaTratada);
         if (listaTratada.length > 0 && !listaParaCompararId) {
-          setListaParaCompararId(listaTratada[0].id);
+          setListaParaCompararId(renderTexto(listaTratada[0].id));
         }
       } else {
         setListas([]);
       }
     } catch (error) {
-      console.error('Erro ao conectar com o banco:', error);
+      console.error('Erro ao buscar listas:', error);
       setListas([]);
     } finally {
       setLoadingListas(false);
@@ -138,16 +147,15 @@ function MainApp() {
   const handleCadastro = async (e) => {
     e.preventDefault();
     if (!nomeCompleto.trim() || !emailCadastro.trim() || !usuarioCadastro.trim() || !senhaCadastro.trim()) {
-      return alert('Por favor, preencha todos os campos do cadastro.');
+      return alert('Preencha todos os campos do cadastro.');
     }
     if (!aceitouLgpd) {
-      return alert('Você precisa aceitar os termos de privacidade (LGPD) para prosseguir.');
+      return alert('Aceite os termos de privacidade para prosseguir.');
     }
 
     setUsuario(usuarioCadastro);
     setIsLogged(true);
     setScreen('dashboard');
-    alert(`Conta criada com sucesso! Bem-vindo(a), ${nomeCompleto.split(' ')[0]}!`);
     await carregarListasDoBanco();
     await carregarCuponsDoBanco();
   };
@@ -160,9 +168,7 @@ function MainApp() {
     setScreen('login');
   };
 
-  // ----------------------------------------------------
-  // MANIPULAÇÃO SEGURA DO QR CODE
-  // ----------------------------------------------------
+  // CAMERA / SCANNER
   const pararScanner = async () => {
     if (qrScannerRef.current) {
       try {
@@ -171,7 +177,7 @@ function MainApp() {
         }
         await qrScannerRef.current.clear();
       } catch (err) {
-        console.warn("Aviso de limpeza do scanner:", err);
+        console.warn("Limpeza do scanner:", err);
       }
       qrScannerRef.current = null;
     }
@@ -189,160 +195,73 @@ function MainApp() {
         const html5QrCode = new Html5Qrcode("reader");
         qrScannerRef.current = html5QrCode;
 
-        const config = { fps: 10, qrbox: { width: 200, height: 200 } };
-
         await html5QrCode.start(
           { facingMode: "environment" },
-          config,
+          { fps: 10, qrbox: { width: 200, height: 200 } },
           async (decodedText) => {
             setQrUrlInput(decodedText);
             await pararScanner();
-            alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
+            alert(`✅ QR Code lido com sucesso!`);
           },
           () => {}
         );
       } catch (err) {
-        console.error('Erro ao iniciar câmera:', err);
-        setCameraError('Permissão de câmera negada ou indisponível. Digite os dados manualmente.');
+        console.error('Erro na câmera:', err);
+        setCameraError('Câmera indisponível. Digite os dados manualmente.');
       }
     }, 200);
   };
 
-  const abrirModalQr = () => {
-    setShowQrModal(true);
-  };
-
+  const abrirModalQr = () => setShowQrModal(true);
   const fecharModalQr = async () => {
     await pararScanner();
     setShowQrModal(false);
   };
 
   useEffect(() => {
-    if (showQrModal) {
-      iniciarScanner();
-    } else {
-      pararScanner();
-    }
-    return () => {
-      pararScanner();
-    };
+    if (showQrModal) iniciarScanner();
+    else pararScanner();
+    return () => { pararScanner(); };
   }, [showQrModal]);
 
-  // ----------------------------------------------------
   // GEOLOCALIZAÇÃO
-  // ----------------------------------------------------
   const buscarMercadosProximos = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocalização não é suportada pelo seu navegador.');
-      return;
-    }
-
+    if (!navigator.geolocation) return alert('Geolocalização não suportada.');
     setLoadingGeo(true);
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
         try {
           const query = `[out:json];node["shop"="supermarket"](around:5000,${latitude},${longitude});out 5;`;
-          const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-          
-          const response = await fetch(url);
+          const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
           const data = await response.json();
 
           if (data && Array.isArray(data.elements) && data.elements.length > 0) {
             const mercadosEncontrados = data.elements.map((el, index) => ({
               id: `geo_${el.id || index}`,
-              nome: (el.tags?.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
+              nome: String(el.tags?.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
               distancia: (Math.random() * 2 + 0.5).toFixed(1) + ' km',
               fatorPreco: Number((1 + (index * 0.03 - 0.02)).toFixed(2))
             }));
             setMercadosReais(mercadosEncontrados);
             setUsandoGeo(true);
           } else {
-            alert('Nenhum supermercado encontrado próximo via GPS. Usando base padrão.');
+            alert('Nenhum supermercado encontrado por GPS.');
           }
         } catch (err) {
-          console.error('Erro ao buscar mercados via GPS:', err);
+          console.error('Erro GPS:', err);
         } finally {
           setLoadingGeo(false);
         }
       },
-      (error) => {
-        console.error('Erro de GPS:', error);
-        alert('Não foi possível obter sua localização.');
+      () => {
+        alert('Não foi possível obter a localização.');
         setLoadingGeo(false);
       }
     );
   };
 
-  // ----------------------------------------------------
-  // SALVAR CUPOM
-  // ----------------------------------------------------
-  const processarCupomQrCode = async (e) => {
-    e.preventDefault();
-    if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
-      return alert('Preencha o nome do estabelecimento ou escaneie o QR Code!');
-    }
-
-    const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
-
-    try {
-      const res = await fetch('/api/cupons', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mercado: nomeEstabelecimento,
-          url: qrUrlInput,
-          fatorPreco: Number((0.85 + Math.random() * 0.25).toFixed(2))
-        })
-      });
-
-      if (res.ok) {
-        const cupomSalvo = await res.json();
-        const agora = new Date();
-        const cupomTratado = {
-          id: cupomSalvo?.id || Date.now(),
-          mercado: cupomSalvo?.mercado || nomeEstabelecimento,
-          data: cupomSalvo?.data || agora.toLocaleDateString('pt-BR'),
-          hora: cupomSalvo?.hora || agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          fatorPreco: Number(cupomSalvo?.fatorPreco) || 0.95,
-          tag: cupomSalvo?.tag || 'CUPOM FISCAL',
-          corTag: cupomSalvo?.corTag || 'bg-purple-100 text-purple-800'
-        };
-
-        setHistoricoCupons(prev => [cupomTratado, ...(Array.isArray(prev) ? prev : [])]);
-        setQrUrlInput('');
-        setNomeFantasiaInput('');
-        await fecharModalQr();
-      } else {
-        alert('Erro ao salvar cupom no servidor.');
-      }
-    } catch (err) {
-      console.error('Erro ao salvar cupom:', err);
-      alert('Erro de comunicação ao salvar cupom.');
-    }
-  };
-
-  const excluirCupom = async (id) => {
-    if (confirm('Deseja excluir este cupom do banco de dados?')) {
-      setHistoricoCupons(prev => (Array.isArray(prev) ? prev.filter(c => c.id !== id) : []));
-      await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
-    }
-  };
-
-  const obterMarcaParaItem = (nomeItem) => {
-    const itemUpper = (nomeItem || '').toUpperCase();
-    if (itemUpper.includes('ARROZ')) return 'CAMIL';
-    if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
-    if (itemUpper.includes('LEITE')) return 'NINHO';
-    if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
-    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
-    if (itemUpper.includes('OLEO') || itemUpper.includes('ÓLEO')) return 'LIZA';
-    return 'MARCA SEFAZ';
-  };
-
-  // ----------------------------------------------------
-  // LISTAS & ITENS
-  // ----------------------------------------------------
+  // ADICIONAR / MANIPULAR ITENS E LISTAS
   const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
@@ -357,35 +276,33 @@ function MainApp() {
       if (res.ok) {
         const novaListaCriada = await res.json();
         setListas(prev => [novaListaCriada, ...(Array.isArray(prev) ? prev : [])]);
-        setListaParaCompararId(novaListaCriada.id);
+        setListaParaCompararId(renderTexto(novaListaCriada.id));
         setNovaListaNome('');
-      } else {
-        alert('Ocorreu um erro ao salvar no banco. Tente novamente.');
       }
     } catch (err) {
-      console.error('Erro ao criar lista:', err);
+      console.error('Erro criar lista:', err);
     }
   };
 
   const handleInputItemChange = (listaId, campo, valor) => {
+    const key = renderTexto(listaId);
     setInputsItens(prev => ({
       ...prev,
-      [listaId]: {
-        nome: campo === 'nome' ? valor : prev[listaId]?.nome || '',
-        qtd: campo === 'qtd' ? valor : prev[listaId]?.qtd || 1
+      [key]: {
+        nome: campo === 'nome' ? valor : prev[key]?.nome || '',
+        qtd: campo === 'qtd' ? valor : prev[key]?.qtd || 1
       }
     }));
   };
 
   const adicionarItem = async (e, listaId) => {
     if (e) e.preventDefault();
-    const input = inputsItens[listaId];
+    const key = renderTexto(listaId);
+    const input = inputsItens[key];
     if (!input || !input.nome || !input.nome.trim()) return;
 
     const nomeFormatado = input.nome.trim().toUpperCase();
     const qtdInserida = Number(input.qtd) || 1;
-    const precoEstimadoBase = Number((Math.random() * 15 + 3).toFixed(2));
-    const marcaCalculada = obterMarcaParaItem(nomeFormatado);
 
     try {
       const res = await fetch('/api/listas', {
@@ -396,93 +313,35 @@ function MainApp() {
           listaId,
           nome: nomeFormatado,
           qtd: qtdInserida,
-          precoEstimado: precoEstimadoBase,
-          marca: marcaCalculada
+          precoEstimado: Number((Math.random() * 15 + 3).toFixed(2)),
+          marca: 'MARCA BASE'
         })
       });
 
       if (res.ok) {
         const itemSalvo = await res.json();
         setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
-          if (l.id === listaId) {
+          if (renderTexto(l.id) === key) {
             return { ...l, itens: [...(Array.isArray(l.itens) ? l.itens : []), itemSalvo] };
           }
           return l;
         }));
-        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
+        setInputsItens(prev => ({ ...prev, [key]: { nome: '', qtd: 1 } }));
       }
     } catch (err) {
       console.error('Erro ao adicionar item:', err);
     }
   };
 
-  const alterarQuantidade = async (listaId, itemId, delta) => {
-    let novaQtd = 1;
-
-    setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
-      if (l.id === listaId) {
-        return {
-          ...l,
-          itens: (Array.isArray(l.itens) ? l.itens : []).map(item => {
-            if (item.id === itemId) {
-              novaQtd = Math.max(1, (Number(item.qtd) || 1) + delta);
-              return { ...item, qtd: novaQtd };
-            }
-            return item;
-          })
-        };
-      }
-      return l;
-    }));
-
-    await fetch('/api/listas', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
-    });
-  };
-
-  const removerItem = async (listaId, itemId) => {
-    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter(i => i.id !== itemId) } : l));
-    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
-  };
-
-  const toggleCheck = async (listaId, itemId) => {
-    let novoMarcado = false;
-    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => {
-      if (l.id === listaId) {
-        return {
-          ...l,
-          itens: (Array.isArray(l.itens) ? l.itens : []).map(i => {
-            if (i.id === itemId) {
-              novoMarcado = !i.marcado;
-              return { ...i, marcado: novoMarcado };
-            }
-            return i;
-          })
-        };
-      }
-      return l;
-    }));
-
-    await fetch('/api/listas', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
-    });
-  };
-
   const deletarLista = async (id) => {
-    if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
-      setListas(prev => (Array.isArray(prev) ? prev.filter(l => l.id !== id) : []));
-      if (listaParaCompararId === id) setListaParaCompararId(listas[0]?.id || null);
-      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
+    if (confirm('Deseja excluir esta lista?')) {
+      const strId = renderTexto(id);
+      setListas(prev => (Array.isArray(prev) ? prev.filter(l => renderTexto(l.id) !== strId) : []));
+      await fetch(`/api/listas?listaId=${strId}`, { method: 'DELETE' });
     }
   };
 
-  // ----------------------------------------------------
   // TELA DE LOGIN / CADASTRO
-  // ----------------------------------------------------
   if (screen === 'login' && !isLogged) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
@@ -491,375 +350,204 @@ function MainApp() {
             <h1 className="text-3xl font-extrabold text-[#0d824d] flex items-center justify-center gap-2">
               <span>🛒</span> TÁ QUANTO?
             </h1>
-            <p className="text-gray-600 text-sm font-medium">
-              {authMode === 'login' ? 'Faça login para comparar suas listas' : 'Crie sua conta para começar'}
-            </p>
           </div>
 
           <div className="flex border-b border-gray-200">
             <button
               type="button"
               onClick={() => setAuthMode('login')}
-              className={`flex-1 py-2 text-center font-bold text-xs border-b-2 transition-all ${
-                authMode === 'login'
-                  ? 'border-[#0d824d] text-[#0d824d]'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
-              }`}
+              className={`flex-1 py-2 font-bold text-xs border-b-2 ${authMode === 'login' ? 'border-[#0d824d] text-[#0d824d]' : 'text-gray-400'}`}
             >
               ENTRAR
             </button>
             <button
               type="button"
               onClick={() => setAuthMode('cadastro')}
-              className={`flex-1 py-2 text-center font-bold text-xs border-b-2 transition-all ${
-                authMode === 'cadastro'
-                  ? 'border-[#0d824d] text-[#0d824d]'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
-              }`}
+              className={`flex-1 py-2 font-bold text-xs border-b-2 ${authMode === 'cadastro' ? 'border-[#0d824d] text-[#0d824d]' : 'text-gray-400'}`}
             >
               CADASTRAR-SE
             </button>
           </div>
 
-          {authMode === 'login' && (
+          {authMode === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Usuário</label>
                 <input
                   type="text"
-                  placeholder="Digite seu usuário"
                   value={usuario}
                   onChange={e => setUsuario(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  className="w-full px-4 py-2 border rounded-xl text-sm bg-white text-gray-900"
                   required
                 />
               </div>
-
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
                 <input
                   type="password"
-                  placeholder="Digite sua senha"
                   value={senha}
                   onChange={e => setSenha(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
+                  className="w-full px-4 py-2 border rounded-xl text-sm bg-white text-gray-900"
                   required
                 />
               </div>
-
-              <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all">
+              <button type="submit" className="w-full bg-[#0d824d] text-white py-3 rounded-full font-bold text-sm">
                 Entrar
               </button>
             </form>
-          )}
-
-          {authMode === 'cadastro' && (
-            <form onSubmit={handleCadastro} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Nome Completo</label>
+          ) : (
+            <form onSubmit={handleCadastro} className="space-y-3">
+              <input
+                type="text"
+                placeholder="Nome Completo"
+                value={nomeCompleto}
+                onChange={e => setNomeCompleto(e.target.value)}
+                className="w-full px-4 py-2 border rounded-xl text-xs bg-white text-gray-900"
+                required
+              />
+              <input
+                type="email"
+                placeholder="E-mail"
+                value={emailCadastro}
+                onChange={e => setEmailCadastro(e.target.value)}
+                className="w-full px-4 py-2 border rounded-xl text-xs bg-white text-gray-900"
+                required
+              />
+              <input
+                type="text"
+                placeholder="Usuário"
+                value={usuarioCadastro}
+                onChange={e => setUsuarioCadastro(e.target.value)}
+                className="w-full px-4 py-2 border rounded-xl text-xs bg-white text-gray-900"
+                required
+              />
+              <input
+                type="password"
+                placeholder="Senha"
+                value={senhaCadastro}
+                onChange={e => setSenhaCadastro(e.target.value)}
+                className="w-full px-4 py-2 border rounded-xl text-xs bg-white text-gray-900"
+                required
+              />
+              <div className="flex items-center gap-2">
                 <input
-                  type="text"
-                  placeholder="Ex: João da Silva"
-                  value={nomeCompleto}
-                  onChange={e => setNomeCompleto(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
+                  type="checkbox"
+                  checked={aceitouLgpd}
+                  onChange={e => setAceitouLgpd(e.target.checked)}
                 />
+                <span className="text-[11px] text-gray-600">Aceito os termos da LGPD</span>
               </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">E-mail</label>
-                <input
-                  type="email"
-                  placeholder="seu@email.com"
-                  value={emailCadastro}
-                  onChange={e => setEmailCadastro(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
-                <input
-                  type="text"
-                  placeholder="Escolha um nome de usuário"
-                  value={usuarioCadastro}
-                  onChange={e => setUsuarioCadastro(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
-                <input
-                  type="password"
-                  placeholder="Crie uma senha segura"
-                  value={senhaCadastro}
-                  onChange={e => setSenhaCadastro(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div className="pt-2">
-                <div className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    id="lgpd"
-                    checked={aceitouLgpd}
-                    onChange={e => setAceitouLgpd(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#0d824d] cursor-pointer"
-                  />
-                  <label htmlFor="lgpd" className="text-[11px] text-gray-600 leading-tight">
-                    Li e concordo com o tratamento de dados segundo a Lei Geral de Proteção de Dados (LGPD).{' '}
-                    <button
-                      type="button"
-                      onClick={() => setShowTermosModal(true)}
-                      className="text-blue-600 font-bold underline hover:text-blue-800"
-                    >
-                      Ler Termos de Privacidade e LGPD
-                    </button>
-                  </label>
-                </div>
-              </div>
-
-              <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all mt-2">
-                Cadastrar e Acessar
+              <button type="submit" className="w-full bg-[#0d824d] text-white py-3 rounded-full font-bold text-sm">
+                Cadastrar
               </button>
             </form>
           )}
         </div>
-
-        {showTermosModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4 max-h-[80vh] flex flex-col">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
-                  <span>📄</span> Termos de Privacidade e LGPD
-                </h3>
-                <button
-                  onClick={() => setShowTermosModal(false)}
-                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="overflow-y-auto space-y-3 text-xs text-gray-600 leading-relaxed pr-2">
-                <p className="font-bold text-gray-800">1. Termos de Uso e Proteção de Dados (LGPD)</p>
-                <p>A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos segundo a LGPD (Lei nº 13.709/2018).</p>
-                <p className="font-bold text-gray-800">2. Coleta de Informações</p>
-                <p>Coletamos seu nome completo, e-mail e geolocalização exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos.</p>
-              </div>
-
-              <div className="border-t pt-3 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAceitouLgpd(true);
-                    setShowTermosModal(false);
-                  }}
-                  className="bg-[#0d824d] hover:bg-[#0a673d] text-white font-bold py-2 px-5 rounded-xl text-xs transition-all"
-                >
-                  Li e Concordo
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  // ----------------------------------------------------
-  // CÁLCULOS SEGUROS PARA A ABA COMPARAR
-  // ----------------------------------------------------
-  const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l?.id === listaParaCompararId) || (Array.isArray(listas) ? listas[0] : null);
+  // PREPARAÇÃO SEGURA DE DADOS PARA COMPARAÇÃO
+  const listaSelecionada = (Array.isArray(listas) ? listas : []).find(
+    l => renderTexto(l?.id) === renderTexto(listaParaCompararId)
+  ) || (Array.isArray(listas) ? listas[0] : null);
 
   const baseMercados = (Array.isArray(mercadosReais) && mercadosReais.length > 0) ? mercadosReais : [
-    { id: 'm_101', nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
-    { id: 'm_102', nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
-    { id: 'm_103', nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
+    { id: 'm1', nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98 },
+    { id: 'm2', nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02 }
   ];
 
-  const cuponsFormatadosParaMercado = Array.isArray(historicoCupons) 
-    ? historicoCupons.map((c, index) => ({
-        id: `cupom_comp_${c?.id || index}`,
-        idOriginalCupom: c?.id || index,
-        nome: c?.mercado || 'MERCADO VIA CUPOM',
-        distancia: c?.data ? `Bipado em ${c.data}` : 'Cupom Recente',
-        fatorPreco: Number(c?.fatorPreco) || 0.95,
-        tag: c?.tag || 'CUPOM FISCAL',
-        corTag: c?.corTag || 'bg-purple-100 text-purple-800',
-        isCupom: true
-      }))
-    : [];
-
-  const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
   const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
   const totalBase = itensDaListaAtiva.reduce((acc, item) => {
     const preco = Number(item?.precoEstimado) || 8.5;
-    const quantidade = Number(item?.qtd) || 1;
-    return acc + (preco * quantidade);
+    const qtd = Number(item?.qtd) || 1;
+    return acc + (preco * qtd);
   }, 0);
-
-  const listaMercadosOrdenados = todosMercadosECupons.map((item, idx) => {
-    const fator = Number(item?.fatorPreco) || 1;
-    const totalCalculado = Number((totalBase * fator).toFixed(2));
-    return { ...item, totalCalculado, idUnico: item?.id || `mercado_${idx}` };
-  }).sort((a, b) => a.totalCalculado - b.totalCalculado);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] pb-24 font-sans">
-      {/* CABEÇALHO FIXO */}
       <header className="bg-white border-b sticky top-0 z-30 px-4 py-3 shadow-sm">
         <div className="max-w-xl mx-auto flex justify-between items-center">
-          <h1 className="text-base font-extrabold text-[#0d824d] flex items-center gap-1.5">
-            🛒 TÁ QUANTO?
-          </h1>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-              👤 {(usuario || 'USUÁRIO').toUpperCase()}
-            </span>
-            <button onClick={handleLogout} className="text-xs font-bold text-red-500 hover:underline">
-              Sair
-            </button>
-          </div>
+          <h1 className="text-base font-extrabold text-[#0d824d]">🛒 TÁ QUANTO?</h1>
+          <button onClick={handleLogout} className="text-xs font-bold text-red-500">Sair</button>
         </div>
       </header>
 
-      {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-xl mx-auto p-4 space-y-4">
-
-        {/* ABA 1: MINHAS LISTAS */}
+        {/* TAB 1: LISTAS */}
         {activeTab === 'listas' && (
           <div className="space-y-4">
-            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
-                <span className="text-blue-600">➕</span> Nova Lista de Compras
-              </div>
-              <form onSubmit={criarNovaLista} className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="EX: MENSAL, CHURRASCO..."
-                  value={novaListaNome}
-                  onChange={e => setNovaListaNome(e.target.value)}
-                  className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 uppercase bg-white"
-                  required
-                />
-                <button type="submit" className="bg-[#1877f2] hover:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0">
-                  + Criar
-                </button>
-              </form>
-            </div>
+            <form onSubmit={criarNovaLista} className="flex gap-2 bg-white p-3 rounded-2xl shadow-sm">
+              <input
+                type="text"
+                placeholder="NOVA LISTA..."
+                value={novaListaNome}
+                onChange={e => setNovaListaNome(e.target.value)}
+                className="flex-1 px-3 py-2 border rounded-xl text-xs font-semibold bg-white text-gray-900 uppercase"
+                required
+              />
+              <button type="submit" className="bg-[#1877f2] text-white px-4 py-2 rounded-xl text-xs font-bold">
+                + Criar
+              </button>
+            </form>
 
-            <div className="space-y-2.5">
-              <div className="flex justify-between items-center px-1">
-                <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
-                  Suas Listas ({listas.length})
-                </h2>
-                <button onClick={carregarListasDoBanco} className="text-xs text-blue-600 font-bold hover:underline">
-                  🔄 Sincronizar
-                </button>
-              </div>
-
+            <div className="space-y-2">
               {loadingListas ? (
-                <div className="bg-white p-6 rounded-2xl text-center border">
-                  <p className="text-xs font-bold text-gray-500">Carregando listas...</p>
-                </div>
-              ) : listas.length === 0 ? (
-                <div className="bg-white p-6 rounded-2xl text-center border space-y-1">
-                  <p className="text-xs font-bold text-gray-700">Nenhuma lista encontrada.</p>
-                  <p className="text-[11px] text-gray-400">Crie uma nova lista acima para começar!</p>
-                </div>
-              ) : listas.map((lista, lIdx) => {
-                const estaAberta = !!listasAbertas[lista.id];
-                const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
+                <p className="text-xs text-center text-gray-500 py-4">Carregando listas...</p>
+              ) : (Array.isArray(listas) ? listas : []).map((lista, lIdx) => {
+                const strId = renderTexto(lista.id, `lista_${lIdx}`);
+                const estaAberta = !!listasAbertas[strId];
+                const inputAtual = inputsItens[strId] || { nome: '', qtd: 1 };
                 const itensLista = Array.isArray(lista.itens) ? lista.itens : [];
 
                 return (
-                  <div key={lista.id || `lista_key_${lIdx}`} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div key={strId} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                     <div 
                       onClick={() => {
-                        setListasAbertas(p => ({ ...p, [lista.id]: !p[lista.id] }));
-                        setListaParaCompararId(lista.id);
+                        setListasAbertas(p => ({ ...p, [strId]: !p[strId] }));
+                        setListaParaCompararId(strId);
                       }}
-                      className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 select-none"
+                      className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="text-base text-blue-600 font-bold shrink-0">{estaAberta ? '📂' : '📁'}</span>
-                        <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 uppercase truncate">{lista.nome}</h3>
-                        <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full shrink-0">
-                          {itensLista.length} {itensLista.length === 1 ? 'item' : 'itens'}
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-bold text-gray-500 ml-2">{estaAberta ? '▲' : '▼'}</span>
+                      <h3 className="text-xs font-extrabold text-gray-800 uppercase">{renderTexto(lista.nome)}</h3>
+                      <span className="text-xs text-gray-400">{estaAberta ? '▲' : '▼'}</span>
                     </div>
 
                     {estaAberta && (
-                      <div className="border-t border-gray-100 bg-white">
-                        <div className="p-2.5 bg-gray-50/80 border-b flex items-center justify-between gap-2">
-                          <button type="button" onClick={() => deletarLista(lista.id)} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg text-xs font-bold">
+                      <div className="border-t bg-gray-50 p-3 space-y-3">
+                        <div className="flex justify-between items-center">
+                          <button onClick={() => deletarLista(strId)} className="text-xs text-red-500 font-bold">
                             🗑️ Excluir Lista
                           </button>
                         </div>
 
-                        <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex flex-wrap sm:flex-nowrap gap-2 items-center">
+                        <form onSubmit={(e) => adicionarItem(e, strId)} className="flex gap-2">
                           <input
                             type="text"
                             placeholder="NOME DO ITEM..."
                             value={inputAtual.nome}
-                            onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                            className="flex-1 min-w-[130px] px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
+                            onChange={e => handleInputItemChange(strId, 'nome', e.target.value)}
+                            className="flex-1 px-3 py-1.5 border rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
                             required
                           />
-                          <div className="flex gap-2 shrink-0 w-full sm:w-auto">
-                            <input
-                              type="number"
-                              min="1"
-                              value={inputAtual.qtd}
-                              onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                              className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
-                            />
-                            <button type="submit" className="flex-1 sm:flex-none bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 hover:bg-blue-700 transition-all">
-                              + Adicionar
-                            </button>
-                          </div>
+                          <input
+                            type="number"
+                            min="1"
+                            value={inputAtual.qtd}
+                            onChange={e => handleInputItemChange(strId, 'qtd', e.target.value)}
+                            className="w-14 px-2 py-1.5 border rounded-lg text-xs text-center font-bold bg-white text-gray-900"
+                          />
+                          <button type="submit" className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+                            + Add
+                          </button>
                         </form>
 
-                        <div className="divide-y">
+                        <div className="divide-y bg-white rounded-xl border">
                           {itensLista.map((item, iIdx) => (
-                            <div key={item.id || `item_key_${iIdx}`} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
-                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(item.marcado)}
-                                  onChange={() => toggleCheck(lista.id, item.id)}
-                                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer shrink-0"
-                                />
-                                <div className="min-w-0">
-                                  <span className={`text-xs font-bold block truncate ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                    {item.nome}
-                                  </span>
-                                  {item.marca && (
-                                    <span className="text-[10px] text-gray-400 block font-medium">
-                                      Marca: {item.marca}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
-                                  <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, -1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">-</button>
-                                  <span className="w-7 text-center text-xs font-bold">{item.qtd}</span>
-                                  <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, 1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">+</button>
-                                </div>
-                                <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">✕</button>
-                              </div>
+                            <div key={renderTexto(item.id, `item_${iIdx}`)} className="p-2.5 flex justify-between items-center text-xs">
+                              <span className="font-bold text-gray-800">{renderTexto(item.nome)}</span>
+                              <span className="text-gray-500 font-semibold">{renderTexto(item.qtd)}x</span>
                             </div>
                           ))}
                         </div>
@@ -872,293 +560,81 @@ function MainApp() {
           </div>
         )}
 
-        {/* ABA 2: COMPARAR PREÇOS */}
+        {/* TAB 2: COMPARAR */}
         {activeTab === 'comparar' && (
           <div className="space-y-4">
-            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
-                  Selecione a Lista para Comparar:
-                </label>
-                <select
-                  value={listaParaCompararId || ''}
-                  onChange={(e) => setListaParaCompararId(e.target.value)}
-                  className="w-full bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2.5 focus:outline-none"
-                >
-                  {(Array.isArray(listas) ? listas : []).map(l => (
-                    <option key={l.id} value={l.id}>
-                      {l.nome} ({l.itens?.length || 0} itens)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={buscarMercadosProximos}
-                disabled={loadingGeo}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition-all"
+            <div className="bg-white p-3.5 rounded-2xl border space-y-3">
+              <select
+                value={renderTexto(listaParaCompararId)}
+                onChange={(e) => setListaParaCompararId(e.target.value)}
+                className="w-full bg-white border text-gray-800 font-bold text-xs rounded-xl px-3 py-2"
               >
-                <span>📍</span> {loadingGeo ? 'Buscando GPS...' : usandoGeo ? 'GPS Ativado ✓' : 'Buscar Mercados Próximos (GPS)'}
+                {(Array.isArray(listas) ? listas : []).map((l, idx) => (
+                  <option key={renderTexto(l.id, `opt_${idx}`)} value={renderTexto(l.id)}>
+                    {renderTexto(l.nome)}
+                  </option>
+                ))}
+              </select>
+
+              <button onClick={buscarMercadosProximos} className="w-full bg-emerald-600 text-white font-bold py-2 rounded-xl text-xs">
+                📍 {loadingGeo ? 'Buscando...' : 'Buscar Mercados Próximos (GPS)'}
               </button>
             </div>
 
-            {/* RANKING DE MERCADOS */}
-            {!listaSelecionada || !listaSelecionada.itens || listaSelecionada.itens.length === 0 ? (
-              <div className="bg-white p-8 rounded-2xl text-center border space-y-2">
-                <span className="text-3xl">📊</span>
-                <p className="text-xs font-bold text-gray-700">Sua lista selecionada está vazia.</p>
-                <p className="text-[11px] text-gray-400">Adicione itens na aba "Listas" para ver o comparativo de preços.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {listaMercadosOrdenados.map((mercado, idx) => {
-                  const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.idUnico;
-                  const eOMaisBarato = idx === 0;
-
-                  return (
-                    <div 
-                      key={mercado.idUnico} 
-                      className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-white border-gray-200'} ${eOMaisBarato ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
-                    >
-                      <div className="p-4 flex items-center justify-between gap-3">
-                        <div 
-                          onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.idUnico)}
-                          className="space-y-1 flex-1 cursor-pointer select-none"
-                        >
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-black bg-gray-800 text-white px-2 py-0.5 rounded-full">
-                              #{idx + 1}º
-                            </span>
-                            {eOMaisBarato && (
-                              <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
-                                🥇 MENOR PREÇO
-                              </span>
-                            )}
-                            {mercado.tag && (
-                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
-                                {mercado.tag}
-                              </span>
-                            )}
-                          </div>
-                          <h4 className="text-xs sm:text-sm font-extrabold text-gray-800 flex items-center gap-1.5 pt-0.5">
-                            {mercado.nome}
-                          </h4>
-                          <p className="text-[10px] text-gray-500 font-medium">{mercado.distancia}</p>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="text-[9px] text-gray-400 font-bold block uppercase">Total Estimado</span>
-                          <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
-                          <button
-                            onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.idUnico)}
-                            className="text-[10px] text-emerald-700 font-bold underline mt-0.5"
-                          >
-                            {estaAbertoDetalhe ? 'Ver Menos' : 'Ver Detalhes'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {estaAbertoDetalhe && (
-                        <div className="bg-gray-50 p-3.5 border-t border-gray-100 space-y-2">
-                          <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                            Estimativa de Itens ({mercado.nome}):
-                          </h5>
-                          <div className="divide-y divide-gray-200">
-                            {itensDaListaAtiva.map((item, itemIdx) => {
-                              const precoBase = Number(item?.precoEstimado) || 8.5;
-                              const fator = Number(mercado?.fatorPreco) || 1;
-                              const precoUn = Number((precoBase * fator).toFixed(2));
-                              const qtd = Number(item?.qtd) || 1;
-                              const subtotal = Number((precoUn * qtd).toFixed(2));
-                              const marcaExibicao = item?.marca || obterMarcaParaItem(item?.nome);
-
-                              return (
-                                <div key={item?.id || `sub_item_${itemIdx}`} className="py-2 flex justify-between items-center text-xs">
-                                  <div>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-bold text-gray-800">{item?.nome}</span>
-                                      <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
-                                        🏷️ {marcaExibicao}
-                                      </span>
-                                    </div>
-                                    <span className="text-[10px] text-gray-400 block font-medium mt-0.5">
-                                      {qtd}x un · R$ {precoUn.toFixed(2)} cada
-                                    </span>
-                                  </div>
-                                  <span className="font-extrabold text-emerald-700">R$ {subtotal.toFixed(2)}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+            <div className="space-y-2">
+              {baseMercados.map((m, idx) => {
+                const totalCalculado = (totalBase * (m.fatorPreco || 1)).toFixed(2);
+                return (
+                  <div key={renderTexto(m.id, `m_${idx}`)} className="bg-white p-4 rounded-2xl border flex justify-between items-center">
+                    <div>
+                      <h4 className="text-xs font-extrabold text-gray-800">{renderTexto(m.nome)}</h4>
+                      <p className="text-[10px] text-gray-400">{renderTexto(m.distancia)}</p>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                    <span className="text-sm font-black text-emerald-600">R$ {totalCalculado}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {/* ABA 3: CUPONS & QR CODE */}
+        {/* TAB 3: CUPONS */}
         {activeTab === 'cupons' && (
           <div className="space-y-4">
-            <div className="bg-purple-900 text-white p-5 rounded-3xl shadow-lg space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">🧾</span>
-                <div>
-                  <h3 className="text-base font-extrabold">Cupons Fiscais</h3>
-                  <p className="text-xs text-purple-200 font-medium">Bipe QR Codes de notas fiscais para atualizar preços no seu app.</p>
-                </div>
-              </div>
+            <button onClick={abrirModalQr} className="w-full bg-purple-600 text-white font-bold py-3 rounded-2xl text-xs">
+              📷 BIPAR NOVO QR CODE
+            </button>
 
-              <button
-                onClick={abrirModalQr}
-                className="w-full bg-purple-500 hover:bg-purple-400 text-white font-extrabold text-xs py-3 rounded-2xl shadow flex items-center justify-center gap-2 transition-all"
-              >
-                📷 BIPAR NOVO QR CODE
-              </button>
-            </div>
-
-            {/* HISTÓRICO DE CUPONS DO BANCO DE DADOS */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center px-1">
-                <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
-                  Cupons Salvos na Nuvem ({historicoCupons.length})
-                </h3>
-                <button onClick={carregarCuponsDoBanco} className="text-xs text-purple-600 font-bold hover:underline">
-                  🔄 Atualizar
-                </button>
-              </div>
-
-              {loadingCupons ? (
-                <div className="bg-white p-6 rounded-2xl text-center border">
-                  <p className="text-xs font-bold text-gray-500">Buscando cupons salvos...</p>
+              {(Array.isArray(historicoCupons) ? historicoCupons : []).map((c, idx) => (
+                <div key={renderTexto(c.id, `c_${idx}`)} className="bg-white p-3 rounded-2xl border flex justify-between items-center">
+                  <span className="text-xs font-bold">{renderTexto(c.mercado, 'CUPOM')}</span>
+                  <span className="text-[10px] text-gray-400">{renderTexto(c.data, 'Hoje')}</span>
                 </div>
-              ) : historicoCupons.length === 0 ? (
-                <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
-                  <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenum cupom bipado até o momento.</p>
-                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta!</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {historicoCupons.map((cupom, idx) => (
-                    <div 
-                      key={cupom.id || `cupom_hist_${idx}`} 
-                      className="bg-white border border-purple-200 rounded-2xl p-4 flex justify-between items-center shadow-sm"
-                    >
-                      <div>
-                        <h4 className="text-xs font-extrabold text-gray-800">{cupom.mercado || 'ESTABELECIMENTO'}</h4>
-                        <p className="text-[10px] text-purple-700 font-medium mt-0.5">
-                          📅 {cupom.data || 'Hoje'} {cupom.hora ? `às ${cupom.hora}` : ''}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => excluirCupom(cupom.id)}
-                        className="text-red-500 hover:bg-red-50 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
-                      >
-                        🗑️ Excluir
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              ))}
             </div>
           </div>
         )}
       </main>
 
-      {/* BARRA DE NAVEGAÇÃO INFERIOR */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 px-4 py-2">
-        <div className="max-w-md mx-auto flex justify-around items-center">
-          <button
-            onClick={() => setActiveTab('listas')}
-            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
-              activeTab === 'listas' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <span className="text-lg">📋</span>
-            <span>Listas</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('comparar')}
-            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
-              activeTab === 'comparar' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <span className="text-lg">📊</span>
-            <span>Comparar</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('cupons')}
-            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
-              activeTab === 'cupons' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <span className="text-lg">🧾</span>
-            <span>Cupons</span>
-          </button>
+      {/* FOOTER */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t z-40 px-4 py-2">
+        <div className="max-w-md mx-auto flex justify-around">
+          <button onClick={() => setActiveTab('listas')} className={`text-xs font-bold ${activeTab === 'listas' ? 'text-[#0d824d]' : 'text-gray-400'}`}>📋 Listas</button>
+          <button onClick={() => setActiveTab('comparar')} className={`text-xs font-bold ${activeTab === 'comparar' ? 'text-[#0d824d]' : 'text-gray-400'}`}>📊 Comparar</button>
+          <button onClick={() => setActiveTab('cupons')} className={`text-xs font-bold ${activeTab === 'cupons' ? 'text-[#0d824d]' : 'text-gray-400'}`}>🧾 Cupons</button>
         </div>
       </nav>
 
-      {/* MODAL DE LEITURA DE QR CODE */}
+      {/* MODAL QR CODE */}
       {showQrModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
-                <span>📷</span> Escanear QR Code do Cupom
-              </h3>
-              <button 
-                onClick={fecharModalQr}
-                className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
-              >
-                ✕
-              </button>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-bold">Escanear QR Code</h3>
+              <button onClick={fecharModalQr} className="text-gray-400 font-bold">✕</button>
             </div>
-
-            <div className="bg-black rounded-2xl overflow-hidden min-h-[220px] flex items-center justify-center relative">
-              {cameraError ? (
-                <p className="text-xs font-bold text-red-400 p-4 text-center">{cameraError}</p>
-              ) : (
-                <div id="reader" className="w-full h-full"></div>
-              )}
-            </div>
-
-            <form onSubmit={processarCupomQrCode} className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                  Nome Fantasia do Estabelecimento:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Mercado do Zé, Carrefour..."
-                  value={nomeFantasiaInput}
-                  onChange={(e) => setNomeFantasiaInput(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={fecharModalQr}
-                  className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs hover:bg-gray-200"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
-                >
-                  Salvar Cupom
-                </button>
-              </div>
-            </form>
+            <div id="reader" className="w-full min-h-[200px] bg-black rounded-xl"></div>
           </div>
         </div>
       )}
@@ -1166,7 +642,6 @@ function MainApp() {
   );
 }
 
-// Exportação principal protegida pelo Error Boundary
 export default function Home() {
   return (
     <ErrorBoundary>
