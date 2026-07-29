@@ -1,1106 +1,427 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+
+import { useState, useEffect } from 'react';
 
 export default function Home() {
-  const [screen, setScreen] = useState('login');
-  const [isLogged, setIsLogged] = useState(false);
-  const [loadingListas, setLoadingListas] = useState(false);
-  const [loadingCupons, setLoadingCupons] = useState(false);
-  const [activeTab, setActiveTab] = useState('listas'); // 'listas' | 'comparar' | 'cupons'
+  // Aba Ativa: 'listas' | 'comparar' | 'cupons'
+  const [abaAtiva, setAbaAtiva] = useState('listas');
 
-  // Autenticação e Cadastro
-  const [authMode, setAuthMode] = useState('login');
-  const [usuario, setUsuario] = useState('');
-  const [senha, setSenha] = useState('');
-  
-  // Campos de Cadastro
-  const [nomeCompleto, setNomeCompleto] = useState('');
-  const [emailCadastro, setEmailCadastro] = useState('');
-  const [usuarioCadastro, setUsuarioCadastro] = useState('');
-  const [senhaCadastro, setSenhaCadastro] = useState('');
-  const [aceitouLgpd, setAceitouLgpd] = useState(false);
-  const [showTermosModal, setShowTermosModal] = useState(false);
-
-  // Listas de Compras
+  // Estados gerais
   const [listas, setListas] = useState([]);
-  const [listasAbertas, setListasAbertas] = useState({});
-  const [novaListaNome, setNovaListaNome] = useState('');
-  const [inputsItens, setInputsItens] = useState({});
-
-  // Comparação e Geolocalização
-  const [listaParaCompararId, setListaParaCompararId] = useState(null);
-  const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
-  const [loadingGeo, setLoadingGeo] = useState(false);
-  const [mercadosReais, setMercadosReais] = useState([]);
-  const [usandoGeo, setUsandoGeo] = useState(false);
-
-  // Modais de QR Code / Cupom Fiscal / Histórico
-  const [showQrModal, setShowQrModal] = useState(false);
-  const [qrUrlInput, setQrUrlInput] = useState('');
-  const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
+  const [listaSelecionada, setListaSelecionada] = useState(null);
+  const [novoNomeLista, setNovoNomeLista] = useState('');
+  const [novoItemNome, setNovoItemNome] = useState('');
+  
+  // Estados para Cupons
   const [historicoCupons, setHistoricoCupons] = useState([]);
-  const [cameraError, setCameraError] = useState('');
-  const qrScannerRef = useRef(null);
+  const [urlQrCode, setUrlQrCode] = useState('');
+  const [nomeMercadoCupom, setNomeMercadoCupom] = useState('');
+  
+  // Estados para Comparador
+  const [resultadoComparacao, setResultadoComparacao] = useState(null);
+  const [carregandoComparacao, setCarregandoComparacao] = useState(false);
 
-  // BUSCAR TODOS OS CUPONS PÚBLICOS DO BANCO DE DADOS (CROWDSOURCING)
-  const carregarCuponsDoBanco = async () => {
-    setLoadingCupons(true);
-    try {
-      const res = await fetch('/api/cupons', { cache: 'no-store' });
-      if (res.ok) {
-        const dados = await res.json();
-        setHistoricoCupons(dados);
-      }
-    } catch (error) {
-      console.error('Erro ao buscar cupons públicos do banco:', error);
-    } finally {
-      setLoadingCupons(false);
-    }
-  };
-
-  // BUSCAR LISTAS DO BANCO DE DADOS
-  const carregarListasDoBanco = async () => {
-    setLoadingListas(true);
-    try {
-      const res = await fetch('/api/listas', { cache: 'no-store' });
-      if (res.ok) {
-        const dados = await res.json();
-        setListas(dados);
-        if (dados && dados.length > 0 && !listaParaCompararId) {
-          setListaParaCompararId(dados[0].id);
-        }
-      }
-    } catch (error) {
-      console.error('Erro ao conectar com o banco:', error);
-    } finally {
-      setLoadingListas(false);
-    }
-  };
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (!usuario.trim()) return alert('Digite seu usuário');
-    setIsLogged(true);
-    setScreen('dashboard');
-    await carregarListasDoBanco();
-    await carregarCuponsDoBanco();
-  };
-
-  const handleCadastro = async (e) => {
-    e.preventDefault();
-    if (!nomeCompleto.trim() || !emailCadastro.trim() || !usuarioCadastro.trim() || !senhaCadastro.trim()) {
-      return alert('Por favor, preencha todos os campos do cadastro.');
-    }
-    if (!aceitouLgpd) {
-      return alert('Você precisa aceitar os termos de privacidade (LGPD) para prosseguir.');
-    }
-
-    setUsuario(usuarioCadastro);
-    setIsLogged(true);
-    setScreen('dashboard');
-    alert(`Conta criada com sucesso! Bem-vindo(a), ${nomeCompleto.split(' ')[0]}!`);
-    await carregarListasDoBanco();
-    await carregarCuponsDoBanco();
-  };
-
-  const handleLogout = () => {
-    pararScanner();
-    setIsLogged(false);
-    setListas([]);
-    setHistoricoCupons([]);
-    setScreen('login');
-  };
-
-  // ----------------------------------------------------
-  // LEITOR DE QR CODE EM TEMPO REAL
-  // ----------------------------------------------------
-  const iniciarScanner = async () => {
-    setCameraError('');
-    try {
-      if (qrScannerRef.current) {
-        await pararScanner();
-      }
-
-      const html5QrCode = new Html5Qrcode("reader");
-      qrScannerRef.current = html5QrCode;
-
-      const config = { fps: 10, qrbox: { width: 220, height: 220 } };
-
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        (decodedText) => {
-          setQrUrlInput(decodedText);
-          pararScanner();
-          alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
-        },
-        () => {}
-      );
-    } catch (err) {
-      console.error('Erro ao iniciar câmera:', err);
-      setCameraError('Não foi possível abrir a câmera. Permita o acesso ou digite os dados abaixo.');
-    }
-  };
-
-  const pararScanner = async () => {
-    if (qrScannerRef.current) {
-      try {
-        if (qrScannerRef.current.isScanning) {
-          await qrScannerRef.current.stop();
-        }
-        qrScannerRef.current.clear();
-      } catch (err) {
-        console.error("Erro ao parar scanner:", err);
-      }
-      qrScannerRef.current = null;
-    }
-  };
-
-  const abrirModalQr = () => {
-    setShowQrModal(true);
-  };
-
-  const fecharModalQr = () => {
-    pararScanner();
-    setShowQrModal(false);
-  };
-
+  // Carrega listas e cupons ao iniciar
   useEffect(() => {
-    if (showQrModal) {
-      const timer = setTimeout(() => {
-        iniciarScanner();
-      }, 300);
-      return () => clearTimeout(timer);
-    } else {
-      pararScanner();
-    }
-  }, [showQrModal]);
+    carregarListas();
+    carregarCupons();
+  }, []);
 
-  // ----------------------------------------------------
-  // GEOLOCALIZAÇÃO
-  // ----------------------------------------------------
-  const buscarMercadosProximos = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocalização não é suportada pelo seu navegador.');
+  // --- FUNÇÕES DA API ---
+
+  async function carregarListas() {
+    try {
+      const res = await fetch('/api/listas');
+      if (res.ok) {
+        const data = await res.json();
+        setListas(data);
+        if (data.length > 0 && !listaSelecionada) {
+          setListaSelecionada(data[0]);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao carregar listas:', err);
+    }
+  }
+
+  async function criarLista() {
+    if (!novoNomeLista.trim()) return;
+    try {
+      const res = await fetch('/api/listas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: novoNomeLista }),
+      });
+      if (res.ok) {
+        setNovoNomeLista('');
+        carregarListas();
+      }
+    } catch (err) {
+      console.error('Erro ao criar lista:', err);
+    }
+  }
+
+  async function adicionarItem() {
+    if (!novoItemNome.trim() || !listaSelecionada) return;
+    try {
+      const res = await fetch('/api/listas', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listaId: listaSelecionada.id,
+          produtoNome: novoItemNome,
+        }),
+      });
+      if (res.ok) {
+        setNovoItemNome('');
+        carregarListas();
+      }
+    } catch (err) {
+      console.error('Erro ao adicionar item:', err);
+    }
+  }
+
+  async function carregarCupons() {
+    try {
+      const res = await fetch('/api/cupons');
+      if (res.ok) {
+        const data = await res.json();
+        setHistoricoCupons(data);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar cupons:', err);
+    }
+  }
+
+  async function salvarCupom() {
+    if (!nomeMercadoCupom.trim()) {
+      alert('Por favor, informe o nome do mercado.');
       return;
     }
-
-    setLoadingGeo(true);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        try {
-          const query = `[out:json];node["shop"="supermarket"](around:5000,${latitude},${longitude});out 5;`;
-          const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-          
-          const response = await fetch(url);
-          const data = await response.json();
-
-          if (data.elements && data.elements.length > 0) {
-            const mercadosEncontrados = data.elements.map((el, index) => ({
-              id: el.id || index,
-              nome: (el.tags.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
-              distancia: (Math.random() * 2 + 0.5).toFixed(1) + ' km',
-              fatorPreco: 1 + (index * 0.03 - 0.02)
-            }));
-            setMercadosReais(mercadosEncontrados);
-            setUsandoGeo(true);
-          } else {
-            alert('Nenhum supermercado encontrado próximo via GPS. Exibindo simulados.');
-          }
-        } catch (err) {
-          console.error('Erro ao buscar mercados via GPS:', err);
-        } finally {
-          setLoadingGeo(false);
-        }
-      },
-      (error) => {
-        console.error('Erro de GPS:', error);
-        alert('Não foi possível obter sua localização. Verifique as permissões.');
-        setLoadingGeo(false);
-      }
-    );
-  };
-
-  // ----------------------------------------------------
-  // SALVAR CUPOM NO BANCO DE DADOS (CROWDSOURCING PÚBLICO)
-  // ----------------------------------------------------
-  const processarCupomQrCode = async (e) => {
-    e.preventDefault();
-    if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
-      return alert('Preencha o nome do estabelecimento ou escaneie o QR Code!');
-    }
-
-    const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
 
     try {
       const res = await fetch('/api/cupons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mercado: nomeEstabelecimento,
-          urlQrCode: qrUrlInput,
-          usuarioColaborador: usuario
-        })
+          mercado: nomeMercadoCupom,
+          urlQrCode: urlQrCode,
+          usuarioColaborador: 'Comunidade',
+        }),
       });
 
       if (res.ok) {
-        alert('🎉 Cupom registrado com sucesso! Preços atualizados para toda a comunidade.');
-        setQrUrlInput('');
-        setNomeFantasiaInput('');
-        fecharModalQr();
-        await carregarCuponsDoBanco();
+        setUrlQrCode('');
+        setNomeMercadoCupom('');
+        alert('Cupom salvo com sucesso! Obrigado por colaborar.');
+        carregarCupons();
       } else {
-        const errData = await res.json();
-        alert(`Erro: ${errData.erro || 'Não foi possível salvar o cupom.'}`);
+        alert('Erro ao salvar o cupom. Verifique os dados fornecidos.');
       }
     } catch (err) {
       console.error('Erro ao salvar cupom:', err);
-      alert('Erro de conexão ao tentar salvar o cupom.');
+      alert('Erro ao salvar o cupom.');
     }
-  };
-
-  const excluirCupom = async (id) => {
-    if (confirm('Deseja excluir este cupom do banco de dados?')) {
-      try {
-        const res = await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
-        if (res.ok) {
-          setHistoricoCupons(prev => prev.filter(c => c.id !== id));
-        } else {
-          alert('Erro ao excluir cupom.');
-        }
-      } catch (err) {
-        console.error('Erro ao excluir cupom:', err);
-      }
-    }
-  };
-
-  const obterMarcaParaItem = (nomeItem) => {
-    const itemUpper = (nomeItem || '').toUpperCase();
-    if (itemUpper.includes('ARROZ')) return 'CAMIL';
-    if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
-    if (itemUpper.includes('LEITE')) return 'NINHO';
-    if (itemUpper.includes('CAFÉ') || itemUpper.includes('CAFE')) return 'PILÃO';
-    if (itemUpper.includes('AÇÚCAR') || itemUpper.includes('ACUCAR')) return 'UNIÃO';
-    if (itemUpper.includes('OLEO') || itemUpper.includes('ÓLEO')) return 'LIZA';
-    return 'MARCA SEFAZ';
-  };
-
-  // ----------------------------------------------------
-  // AÇÕES DAS LISTAS
-  // ----------------------------------------------------
-  const criarNovaLista = async (e) => {
-    e.preventDefault();
-    if (!novaListaNome.trim()) return;
-
-    try {
-      const res = await fetch('/api/listas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: novaListaNome.trim().toUpperCase() })
-      });
-
-      if (res.ok) {
-        const novaListaCriada = await res.json();
-        setListas(prev => [novaListaCriada, ...prev]);
-        setListaParaCompararId(novaListaCriada.id);
-        setNovaListaNome('');
-      } else {
-        alert('Ocorreu um erro ao salvar no banco. Tente novamente.');
-      }
-    } catch (err) {
-      console.error('Erro ao criar lista:', err);
-    }
-  };
-
-  const handleInputItemChange = (listaId, campo, valor) => {
-    setInputsItens(prev => ({
-      ...prev,
-      [listaId]: {
-        nome: campo === 'nome' ? valor : prev[listaId]?.nome || '',
-        qtd: campo === 'qtd' ? valor : prev[listaId]?.qtd || 1
-      }
-    }));
-  };
-
-  const adicionarItem = async (e, listaId) => {
-    if (e) e.preventDefault();
-    const input = inputsItens[listaId];
-    if (!input || !input.nome || !input.nome.trim()) return;
-
-    const nomeFormatado = input.nome.trim().toUpperCase();
-    const qtdInserida = Number(input.qtd) || 1;
-    const precoEstimadoBase = (Math.random() * 15 + 3).toFixed(2);
-    const marcaCalculada = obterMarcaParaItem(nomeFormatado);
-
-    try {
-      const res = await fetch('/api/listas', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          acao: 'ADICIONAR_ITEM',
-          listaId,
-          nome: nomeFormatado,
-          qtd: qtdInserida,
-          precoEstimado: precoEstimadoBase,
-          marca: marcaCalculada
-        })
-      });
-
-      if (res.ok) {
-        const itemSalvo = await res.json();
-        setListas(prevListas => prevListas.map(l => {
-          if (l.id === listaId) {
-            return { ...l, itens: [...(l.itens || []), itemSalvo] };
-          }
-          return l;
-        }));
-        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
-      }
-    } catch (err) {
-      console.error('Erro ao adicionar item:', err);
-    }
-  };
-
-  const alterarQuantidade = async (listaId, itemId, delta) => {
-    let novaQtd = 1;
-
-    setListas(prevListas => prevListas.map(l => {
-      if (l.id === listaId) {
-        return {
-          ...l,
-          itens: (l.itens || []).map(item => {
-            if (item.id === itemId) {
-              novaQtd = Math.max(1, item.qtd + delta);
-              return { ...item, qtd: novaQtd };
-            }
-            return item;
-          })
-        };
-      }
-      return l;
-    }));
-
-    await fetch('/api/listas', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
-    });
-  };
-
-  const removerItem = async (listaId, itemId) => {
-    setListas(prev => prev.map(l => l.id === listaId ? { ...l, itens: (l.itens || []).filter(i => i.id !== itemId) } : l));
-    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
-  };
-
-  const toggleCheck = async (listaId, itemId) => {
-    let novoMarcado = false;
-    setListas(prev => prev.map(l => {
-      if (l.id === listaId) {
-        return {
-          ...l,
-          itens: (l.itens || []).map(i => {
-            if (i.id === itemId) {
-              novoMarcado = !i.marcado;
-              return { ...i, marcado: novoMarcado };
-            }
-            return i;
-          })
-        };
-      }
-      return l;
-    }));
-
-    await fetch('/api/listas', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
-    });
-  };
-
-  const deletarLista = async (id) => {
-    if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
-      setListas(prev => prev.filter(l => l.id !== id));
-      if (listaParaCompararId === id) setListaParaCompararId(listas[0]?.id || null);
-      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
-    }
-  };
-
-  // ----------------------------------------------------
-  // TELA DE LOGIN / CADASTRO
-  // ----------------------------------------------------
-  if (screen === 'login' && !isLogged) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
-        <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-6">
-          <div className="text-center space-y-2">
-            <h1 className="text-3xl font-extrabold text-[#0d824d] flex items-center justify-center gap-2">
-              <span>🛒</span> TÁ QUANTO?
-            </h1>
-            <p className="text-gray-600 text-sm font-medium">
-              {authMode === 'login' ? 'Faça login para comparar suas listas' : 'Crie sua conta para começar'}
-            </p>
-          </div>
-
-          <div className="flex border-b border-gray-200">
-            <button
-              type="button"
-              onClick={() => setAuthMode('login')}
-              className={`flex-1 py-2 text-center font-bold text-xs border-b-2 transition-all ${
-                authMode === 'login'
-                  ? 'border-[#0d824d] text-[#0d824d]'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              ENTRAR
-            </button>
-            <button
-              type="button"
-              onClick={() => setAuthMode('cadastro')}
-              className={`flex-1 py-2 text-center font-bold text-xs border-b-2 transition-all ${
-                authMode === 'cadastro'
-                  ? 'border-[#0d824d] text-[#0d824d]'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              CADASTRAR-SE
-            </button>
-          </div>
-
-          {authMode === 'login' && (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
-                <input
-                  type="text"
-                  placeholder="Digite seu usuário"
-                  value={usuario}
-                  onChange={e => setUsuario(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
-                <input
-                  type="password"
-                  placeholder="Digite sua senha"
-                  value={senha}
-                  onChange={e => setSenha(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all">
-                Entrar
-              </button>
-            </form>
-          )}
-
-          {authMode === 'cadastro' && (
-            <form onSubmit={handleCadastro} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Nome Completo</label>
-                <input
-                  type="text"
-                  placeholder="Ex: João da Silva"
-                  value={nomeCompleto}
-                  onChange={e => setNomeCompleto(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">E-mail</label>
-                <input
-                  type="email"
-                  placeholder="seu@email.com"
-                  value={emailCadastro}
-                  onChange={e => setEmailCadastro(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Nome de Usuário</label>
-                <input
-                  type="text"
-                  placeholder="Escolha um nome de usuário"
-                  value={usuarioCadastro}
-                  onChange={e => setUsuarioCadastro(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Senha</label>
-                <input
-                  type="password"
-                  placeholder="Crie uma senha segura"
-                  value={senhaCadastro}
-                  onChange={e => setSenhaCadastro(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0d824d]"
-                  required
-                />
-              </div>
-
-              <div className="pt-2">
-                <div className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    id="lgpd"
-                    checked={aceitouLgpd}
-                    onChange={e => setAceitouLgpd(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#0d824d] cursor-pointer"
-                  />
-                  <label htmlFor="lgpd" className="text-[11px] text-gray-600 leading-tight">
-                    Li e concordo com o tratamento de dados segundo a Lei Geral de Proteção de Dados (LGPD).{' '}
-                    <button
-                      type="button"
-                      onClick={() => setShowTermosModal(true)}
-                      className="text-blue-600 font-bold underline hover:text-blue-800"
-                    >
-                      Ler Termos de Privacidade e LGPD
-                    </button>
-                  </label>
-                </div>
-              </div>
-
-              <button type="submit" className="w-full bg-[#0d824d] hover:bg-[#0a673d] text-white py-3 rounded-full font-bold text-sm shadow-md transition-all mt-2">
-                Cadastrar e Acessar
-              </button>
-            </form>
-          )}
-        </div>
-
-        {showTermosModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4 max-h-[80vh] flex flex-col">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
-                  <span>📄</span> Termos de Privacidade e LGPD
-                </h3>
-                <button
-                  onClick={() => setShowTermosModal(false)}
-                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="overflow-y-auto space-y-3 text-xs text-gray-600 leading-relaxed pr-2">
-                <p className="font-bold text-gray-800">1. Termos de Uso e Proteção de Dados (LGPD)</p>
-                <p>A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos segundo a LGPD (Lei nº 13.709/2018).</p>
-                <p className="font-bold text-gray-800">2. Coleta de Informações</p>
-                <p>Coletamos seu nome completo, e-mail e geolocalização exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos.</p>
-                <p className="font-bold text-gray-800">3. Uso das Informações</p>
-                <p>Seus dados são utilizados para personalizar suas listas, comparar preços e otimizar sua experiência na plataforma.</p>
-              </div>
-
-              <div className="border-t pt-3 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAceitouLgpd(true);
-                    setShowTermosModal(false);
-                  }}
-                  className="bg-[#0d824d] hover:bg-[#0a673d] text-white font-bold py-2 px-5 rounded-xl text-xs transition-all"
-                >
-                  Li e Concordo
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
   }
 
-  // Cálculos para o comparador de preços
-  const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
-  const baseMercados = mercadosReais.length > 0 ? mercadosReais : [
-    { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
-    { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
-    { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
-  ];
+  async function excluirCupom(id) {
+    try {
+      const res = await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        carregarCupons();
+      }
+    } catch (err) {
+      console.error('Erro ao excluir cupom:', err);
+    }
+  }
 
-  const cuponsFormatadosParaMercado = historicoCupons.map(c => ({
-    id: `cupom_${c.id}`,
-    idOriginalCupom: c.id,
-    nome: c.mercado,
-    distancia: `Bipado em ${c.data || 'recente'} por @${c.usuario_colaborador || 'Comunidade'}`,
-    fatorPreco: 0.95,
-    tag: 'CROWDSOURCING',
-    corTag: 'bg-purple-100 text-purple-800',
-    isCupom: true
-  }));
+  async function compararPrecos() {
+    if (!listaSelecionada) return;
+    setCarregandoComparacao(true);
+    setResultadoComparacao(null);
 
-  const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
-  const itensDaListaAtiva = listaSelecionada?.itens || [];
-  const totalBase = itensDaListaAtiva.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
+    try {
+      const res = await fetch(`/api/comparar/${listaSelecionada.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setResultadoComparacao(data);
+      } else {
+        alert('Não foi possível obter a comparação de preços para esta lista.');
+      }
+    } catch (err) {
+      console.error('Erro ao comparar preços:', err);
+    } finally {
+      setCarregandoComparacao(false);
+    }
+  }
 
-  const listaMercadosOrdenados = [...todosMercadosECupons].map(item => {
-    const totalCalculado = Number((totalBase * (item.fatorPreco || 1)).toFixed(2));
-    return { ...item, totalCalculado };
-  }).sort((a, b) => a.totalCalculado - b.totalCalculado);
+  // Atualiza os dados da lista selecionada sempre que o estado "listas" muda
+  const listaAtual = listas.find((l) => l.id === listaSelecionada?.id) || listas[0];
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8] pb-24 font-sans">
-      {/* CABEÇALHO FIXO */}
-      <header className="bg-white border-b sticky top-0 z-30 px-4 py-3 shadow-sm">
-        <div className="max-w-xl mx-auto flex justify-between items-center">
-          <h1 className="text-base font-extrabold text-[#0d824d] flex items-center gap-1.5">
-            🛒 TÁ QUANTO?
-          </h1>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-              👤 {usuario.toUpperCase()}
-            </span>
-            <button onClick={handleLogout} className="text-xs font-bold text-red-500 hover:underline">
-              Sair
-            </button>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 font-sans text-gray-900">
+      {/* CABEÇALHO */}
+      <header className="w-full max-w-xl bg-white shadow-md rounded-2xl p-5 mb-4 text-center border border-gray-100">
+        <h1 className="text-2xl font-black text-indigo-600 tracking-tight">🛒 EconomizaJá</h1>
+        <p className="text-xs text-gray-500 font-medium mt-1">
+          Crie listas, leia cupons fiscais e encontre o menor preço
+        </p>
       </header>
 
-      {/* CONTEÚDO PRINCIPAL */}
-      <main className="max-w-xl mx-auto p-4 space-y-4">
+      {/* MENU DE ABAS */}
+      <nav className="w-full max-w-xl flex bg-gray-200 rounded-xl p-1 gap-1 mb-6 shadow-inner">
+        <button
+          onClick={() => setAbaAtiva('listas')}
+          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+            abaAtiva === 'listas' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          📝 Listas
+        </button>
+        <button
+          onClick={() => setAbaAtiva('comparar')}
+          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+            abaAtiva === 'comparar' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          📊 Comparador
+        </button>
+        <button
+          onClick={() => setAbaAtiva('cupons')}
+          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+            abaAtiva === 'cupons' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          🧾 Enviar Cupons
+        </button>
+      </nav>
 
-        {/* ABA 1: MINHAS LISTAS */}
-        {activeTab === 'listas' && (
-          <div className="space-y-4">
-            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
-                <span className="text-blue-600">➕</span> Nova Lista de Compras
-              </div>
-              <form onSubmit={criarNovaLista} className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="EX: MENSAL, CHURRASCO..."
-                  value={novaListaNome}
-                  onChange={e => setNovaListaNome(e.target.value)}
-                  className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 uppercase bg-white"
-                  required
-                />
-                <button type="submit" className="bg-[#1877f2] hover:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0">
-                  + Criar
-                </button>
-              </form>
-            </div>
-
-            <div className="space-y-2.5">
-              <div className="flex justify-between items-center px-1">
-                <h2 className="text-[11px] font-extrabold text-gray-400 tracking-wider uppercase">
-                  Suas Listas ({listas.length})
-                </h2>
-                <button onClick={carregarListasDoBanco} className="text-xs text-blue-600 font-bold hover:underline">
-                  🔄 Sincronizar
-                </button>
-              </div>
-
-              {loadingListas ? (
-                <div className="bg-white p-6 rounded-2xl text-center border">
-                  <p className="text-xs font-bold text-gray-500">Carregando listas...</p>
-                </div>
-              ) : listas.length === 0 ? (
-                <div className="bg-white p-6 rounded-2xl text-center border space-y-1">
-                  <p className="text-xs font-bold text-gray-700">Nenhuma lista encontrada.</p>
-                  <p className="text-[11px] text-gray-400">Crie uma nova lista acima para começar!</p>
-                </div>
-              ) : listas.map((lista) => {
-                const estaAberta = !!listasAbertas[lista.id];
-                const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
-                const itensLista = lista.itens || [];
-
-                return (
-                  <div key={lista.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div 
-                      onClick={() => {
-                        setListasAbertas(p => ({ ...p, [lista.id]: !p[lista.id] }));
-                        setListaParaCompararId(lista.id);
-                      }}
-                      className="px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-50 select-none"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="text-base text-blue-600 font-bold shrink-0">{estaAberta ? '📂' : '📁'}</span>
-                        <h3 className="text-xs sm:text-sm font-extrabold text-gray-800 uppercase truncate">{lista.nome}</h3>
-                        <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full shrink-0">
-                          {itensLista.length} {itensLista.length === 1 ? 'item' : 'itens'}
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-bold text-gray-500 ml-2">{estaAberta ? '▲' : '▼'}</span>
-                    </div>
-
-                    {estaAberta && (
-                      <div className="border-t border-gray-100 bg-white">
-                        <div className="p-2.5 bg-gray-50/80 border-b flex items-center justify-between gap-2">
-                          <button type="button" onClick={() => deletarLista(lista.id)} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg text-xs font-bold">
-                            🗑️ Excluir Lista
-                          </button>
-                        </div>
-
-                        <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex flex-wrap sm:flex-nowrap gap-2 items-center">
-                          <input
-                            type="text"
-                            placeholder="NOME DO ITEM..."
-                            value={inputAtual.nome}
-                            onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                            className="flex-1 min-w-[130px] px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
-                            required
-                          />
-                          <div className="flex gap-2 shrink-0 w-full sm:w-auto">
-                            <input
-                              type="number"
-                              min="1"
-                              value={inputAtual.qtd}
-                              onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                              className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
-                            />
-                            <button type="submit" className="flex-1 sm:flex-none bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 hover:bg-blue-700 transition-all">
-                              + Adicionar
-                            </button>
-                          </div>
-                        </form>
-
-                        <div className="divide-y">
-                          {itensLista.map(item => (
-                            <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
-                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(item.marcado)}
-                                  onChange={() => toggleCheck(lista.id, item.id)}
-                                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 cursor-pointer shrink-0"
-                                />
-                                <div className="min-w-0">
-                                  <span className={`text-xs font-bold block truncate ${item.marcado ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                    {item.nome}
-                                  </span>
-                                  {item.marca && (
-                                    <span className="text-[10px] text-gray-400 block font-medium">
-                                      Marca: {item.marca}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
-                                  <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, -1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">-</button>
-                                  <span className="w-7 text-center text-xs font-bold">{item.qtd}</span>
-                                  <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, 1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">+</button>
-                                </div>
-                                <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">✕</button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+      {/* CONTEÚDO DA ABA 1: MINHAS LISTAS */}
+      {abaAtiva === 'listas' && (
+        <main className="w-full max-w-xl flex flex-col gap-4">
+          {/* Criar Nova Lista */}
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+            <h3 className="text-xs font-extrabold text-gray-700 uppercase tracking-wider mb-2">
+              Criar Nova Lista
+            </h3>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Ex: Compras do Mês"
+                value={novoNomeLista}
+                onChange={(e) => setNovoNomeLista(e.target.value)}
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={criarLista}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-sm"
+              >
+                + Criar
+              </button>
             </div>
           </div>
-        )}
 
-        {/* ABA 2: COMPARAR PREÇOS */}
-        {activeTab === 'comparar' && (
-          <div className="space-y-4">
-            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
-                  Selecione a Lista para Comparar:
-                </label>
+          {/* Selecionar e Adicionar Itens */}
+          {listas.length > 0 && (
+            <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-xs font-bold text-gray-500">Selecione a Lista:</span>
                 <select
-                  value={listaParaCompararId || ''}
-                  onChange={(e) => setListaParaCompararId(e.target.value)}
-                  className="w-full bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2.5 focus:outline-none"
+                  value={listaAtual?.id || ''}
+                  onChange={(e) => setListaSelecionada(listas.find((l) => l.id === e.target.value))}
+                  className="bg-gray-100 border border-gray-200 font-bold text-xs rounded-xl px-3 py-1.5 focus:outline-none"
                 >
-                  {listas.map(l => (
+                  {listas.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.nome} ({l.itens?.length || 0} itens)
+                      {l.nome}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <button
-                onClick={buscarMercadosProximos}
-                disabled={loadingGeo}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition-all"
-              >
-                <span>📍</span> {loadingGeo ? 'Buscando GPS...' : usandoGeo ? 'GPS Ativado ✓' : 'Buscar Mercados Próximos (GPS)'}
-              </button>
-            </div>
-
-            {/* RANKING DE MERCADOS */}
-            {!listaSelecionada || !listaSelecionada.itens || listaSelecionada.itens.length === 0 ? (
-              <div className="bg-white p-8 rounded-2xl text-center border space-y-2">
-                <span className="text-3xl">📊</span>
-                <p className="text-xs font-bold text-gray-700">Sua lista selecionada está vazia.</p>
-                <p className="text-[11px] text-gray-400">Adicione itens na aba "Listas" para ver o comparativo de preços.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {listaMercadosOrdenados.map((mercado, idx) => {
-                  const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
-                  const eOMaisBarato = idx === 0;
-
-                  return (
-                    <div 
-                      key={mercado.id || idx} 
-                      className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-white border-gray-200'} ${eOMaisBarato ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
-                    >
-                      <div className="p-4 flex items-center justify-between gap-3">
-                        <div 
-                          onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
-                          className="space-y-1 flex-1 cursor-pointer select-none"
-                        >
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-black bg-gray-800 text-white px-2 py-0.5 rounded-full">
-                              #{idx + 1}º
-                            </span>
-                            {eOMaisBarato && (
-                              <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
-                                🥇 MENOR PREÇO
-                              </span>
-                            )}
-                            {mercado.tag && (
-                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${mercado.corTag}`}>
-                                {mercado.tag}
-                              </span>
-                            )}
-                          </div>
-                          <h4 className="text-xs sm:text-sm font-extrabold text-gray-800 flex items-center gap-1.5 pt-0.5">
-                            {mercado.nome}
-                          </h4>
-                          <p className="text-[10px] text-gray-500 font-medium">{mercado.distancia}</p>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="text-[9px] text-gray-400 font-bold block uppercase">Total Estimado</span>
-                          <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
-                          <button
-                            onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
-                            className="text-[10px] text-emerald-700 font-bold underline mt-0.5"
-                          >
-                            {estaAbertoDetalhe ? 'Ver Menos' : 'Ver Detalhes'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {estaAbertoDetalhe && (
-                        <div className="bg-gray-50 p-3.5 border-t border-gray-100 space-y-2">
-                          <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                            Estimativa de Itens ({mercado.nome}):
-                          </h5>
-                          <div className="divide-y divide-gray-200">
-                            {itensDaListaAtiva.map(item => {
-                              const precoUn = ((item.precoEstimado || 8.5) * (mercado.fatorPreco || 1)).toFixed(2);
-                              const subtotal = (precoUn * (item.qtd || 1)).toFixed(2);
-                              const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
-
-                              return (
-                                <div key={item.id} className="py-2 flex justify-between items-center text-xs">
-                                  <div>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-bold text-gray-800">{item.nome}</span>
-                                      <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
-                                        🏷️ {marcaExibicao}
-                                      </span>
-                                    </div>
-                                    <span className="text-[10px] text-gray-400 block font-medium mt-0.5">
-                                      {item.qtd}x un · R$ {precoUn} cada
-                                    </span>
-                                  </div>
-                                  <span className="font-extrabold text-emerald-700">R$ {subtotal}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ABA 3: CUPONS & QR CODE */}
-        {activeTab === 'cupons' && (
-          <div className="space-y-4">
-            <div className="bg-purple-900 text-white p-5 rounded-3xl shadow-lg space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">🧾</span>
-                <div>
-                  <h3 className="text-base font-extrabold">Cupons Fiscais (Crowdsourcing)</h3>
-                  <p className="text-xs text-purple-200 font-medium">Bipe QR Codes para compartilhar ofertas com a comunidade.</p>
-                </div>
-              </div>
-
-              <button
-                onClick={abrirModalQr}
-                className="w-full bg-purple-500 hover:bg-purple-400 text-white font-extrabold text-xs py-3 rounded-2xl shadow flex items-center justify-center gap-2 transition-all"
-              >
-                📷 BIPAR NOVO QR CODE
-              </button>
-            </div>
-
-            {/* HISTÓRICO DE CUPONS COMPARTILHADOS NA NUVEM */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center px-1">
-                <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
-                  Cupons Públicos da Comunidade ({historicoCupons.length})
-                </h3>
-                <button onClick={carregarCuponsDoBanco} className="text-xs text-purple-600 font-bold hover:underline">
-                  🔄 Atualizar
+              <div className="flex gap-2 mb-4">
+                <input
+                  type="text"
+                  placeholder="Adicionar produto (Ex: Arroz, Leite)..."
+                  value={novoItemNome}
+                  onChange={(e) => setNovoItemNome(e.target.value)}
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  onClick={adicionarItem}
+                  className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-sm"
+                >
+                  Adicionar
                 </button>
               </div>
 
-              {loadingCupons ? (
-                <div className="bg-white p-6 rounded-2xl text-center border">
-                  <p className="text-xs font-bold text-gray-500">Carregando dados da comunidade...</p>
-                </div>
-              ) : historicoCupons.length === 0 ? (
-                <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
-                  <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenhum cupom compartilhado ainda.</p>
-                  <p className="text-[11px] text-gray-400">Seja o primeiro a bipar um QR Code e ajudar outros usuários!</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {historicoCupons.map((cupom) => (
-                    <div 
-                      key={cupom.id} 
-                      className="bg-white border border-purple-200 rounded-2xl p-4 flex justify-between items-center shadow-sm"
+              {/* Lista de Itens Adicionados */}
+              <div className="space-y-2 border-t border-gray-100 pt-3">
+                <h4 className="text-xs font-bold text-gray-600">Itens na Lista ({listaAtual?.itens?.length || 0}):</h4>
+                {listaAtual?.itens?.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">Nenhum item adicionado ainda.</p>
+                ) : (
+                  listaAtual?.itens?.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl border border-gray-100 text-xs font-semibold text-gray-700"
                     >
+                      <span>📦 {item.produtoNome}</span>
+                      <span className="text-gray-400 font-normal">{item.un || '1 UN'}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </main>
+      )}
+
+      {/* CONTEÚDO DA ABA 2: COMPARADOR DE PREÇOS */}
+      {abaAtiva === 'comparar' && (
+        <main className="w-full max-w-xl bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+          <h2 className="text-sm font-extrabold text-gray-800 uppercase tracking-wider mb-2">
+            Comparar Preços nos Supermercados
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Analisamos a base de dados pública da SEFAZ e os cupons enviados pelos usuários para encontrar o mercado mais barato para a sua lista.
+          </p>
+
+          <button
+            onClick={compararPrecos}
+            disabled={carregandoComparacao || !listaAtual}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl text-xs transition-all shadow-md disabled:opacity-50 mb-4"
+          >
+            {carregandoComparacao ? 'Buscando Menor Preço...' : `Comparar Lista Atual: "${listaAtual?.nome || 'Nenhuma'}"`}
+          </button>
+
+          {resultadoComparacao && (
+            <div className="space-y-3 border-t border-gray-100 pt-4">
+              <h3 className="text-xs font-bold text-gray-700">Resultados Encontrados:</h3>
+              {resultadoComparacao.length === 0 ? (
+                <p className="text-xs text-gray-400">Nenhum mercado com preços correspondentes aos itens da sua lista.</p>
+              ) : (
+                resultadoComparacao.map((res, index) => (
+                  <div
+                    key={index}
+                    className={`p-4 rounded-2xl border ${
+                      index === 0
+                        ? 'bg-green-50 border-green-300 shadow-sm'
+                        : 'bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-extrabold text-gray-800">{cupom.mercado}</h4>
-                          <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded-full">
-                            👥 Crowdsourcing
-                          </span>
+                          <h4 className="text-sm font-extrabold text-gray-800">{res.mercado}</h4>
+                          {index === 0 && (
+                            <span className="bg-green-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full">
+                              🏆 MAIS BARATO
+                            </span>
+                          )}
                         </div>
-                        <p className="text-[10px] text-purple-700 font-medium mt-0.5">
-                          📅 {cupom.data} às {cupom.hora || '12:00'} · Colaborador: <strong>@{cupom.usuario_colaborador || 'Anônimo'}</strong>
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          Encontrados: <strong>{res.qtdItensEncontrados}</strong> de {res.totalItensLista} itens da sua lista
                         </p>
                       </div>
-
-                      <button
-                        onClick={() => excluirCupom(cupom.id)}
-                        className="text-red-500 hover:bg-red-50 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
-                      >
-                        🗑️ Excluir
-                      </button>
+                      <div className="text-right">
+                        <span className="text-xs text-gray-400 block font-medium">Total Estimado</span>
+                        <span className="text-base font-black text-green-700">R$ {res.totalEstimado}</span>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))
               )}
             </div>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      )}
 
-      {/* BARRA DE NAVEGAÇÃO INFERIOR */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 px-4 py-2">
-        <div className="max-w-md mx-auto flex justify-around items-center">
-          <button
-            onClick={() => setActiveTab('listas')}
-            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
-              activeTab === 'listas' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <span className="text-lg">📋</span>
-            <span>Listas</span>
-          </button>
+      {/* CONTEÚDO DA ABA 3: ENVIAR CUPONS / CROWDSOURCING */}
+      {abaAtiva === 'cupons' && (
+        <main className="w-full max-w-xl flex flex-col gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <h2 className="text-sm font-extrabold text-gray-800 uppercase tracking-wider mb-1">
+              Colabore Enviando um Cupom Fiscal
+            </h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Bipe ou digite a URL/QR Code da NFC-e da sua compra para colaborar com os preços públicos da comunidade.
+            </p>
 
-          <button
-            onClick={() => setActiveTab('comparar')}
-            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
-              activeTab === 'comparar' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <span className="text-lg">📊</span>
-            <span>Comparar</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('cupons')}
-            className={`flex flex-col items-center gap-1 text-xs font-bold transition-all ${
-              activeTab === 'cupons' ? 'text-[#0d824d]' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <span className="text-lg">🧾</span>
-            <span>Cupons</span>
-          </button>
-        </div>
-      </nav>
-
-      {/* MODAL DE LEITURA DE QR CODE */}
-      {showQrModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
-                <span>📷</span> Escanear QR Code do Cupom
-              </h3>
-              <button 
-                onClick={fecharModalQr}
-                className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="bg-black rounded-2xl overflow-hidden min-h-[220px] flex items-center justify-center relative">
-              {cameraError ? (
-                <p className="text-xs font-bold text-red-400 p-4 text-center">{cameraError}</p>
-              ) : (
-                <div id="reader" className="w-full h-full"></div>
-              )}
-            </div>
-
-            <form onSubmit={processarCupomQrCode} className="space-y-3">
+            <div className="space-y-3">
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                  Nome Fantasia do Estabelecimento:
-                </label>
+                <label className="text-[11px] font-bold text-gray-600 block mb-1">Nome do Supermercado *</label>
                 <input
                   type="text"
-                  placeholder="Ex: Mercado do Zé, Carrefour..."
-                  value={nomeFantasiaInput}
-                  onChange={(e) => setNomeFantasiaInput(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
+                  placeholder="Ex: Carrefour, Extra, Assaí..."
+                  value={nomeMercadoCupom}
+                  onChange={(e) => setNomeMercadoCupom(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={fecharModalQr}
-                  className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs hover:bg-gray-200"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
-                >
-                  Salvar Cupom
-                </button>
+              <div>
+                <label className="text-[11px] font-bold text-gray-600 block mb-1">Link do QR Code ou Chave NFC-e</label>
+                <input
+                  type="text"
+                  placeholder="https://www.sefaz.gov.br/nfce/qrcode?..."
+                  value={urlQrCode}
+                  onChange={(e) => setUrlQrCode(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
-            </form>
+
+              <button
+                onClick={salvarCupom}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md"
+              >
+                💾 Compartilhar Cupom com a Comunidade
+              </button>
+            </div>
           </div>
-        </div>
+
+          {/* Histórico de Cupons Enviados */}
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <h3 className="text-xs font-extrabold text-gray-700 uppercase tracking-wider mb-3">
+              Cupons Compartilhados Recentemente
+            </h3>
+
+            <div className="space-y-2">
+              {historicoCupons.length === 0 ? (
+                <p className="text-xs text-gray-400 italic">Nenhum cupom compartilhado ainda.</p>
+              ) : (
+                historicoCupons.map((cupom) => (
+                  <div
+                    key={cupom.id}
+                    className="bg-white border border-purple-200 rounded-2xl p-3.5 flex justify-between items-center shadow-sm"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-extrabold text-gray-800">
+                          {cupom.mercado?.nome || cupom.mercado || 'MERCADO'}
+                        </h4>
+                        <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded-full">
+                          👥 Crowdsourcing
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-purple-700 font-medium mt-0.5">
+                        📅 {new Date(cupom.criadoEm || cupom.dataEmissao).toLocaleDateString('pt-BR')} ·
+                        Colaborador: <strong>@{cupom.usuario?.usuario || 'Comunidade'}</strong>
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => excluirCupom(cupom.id)}
+                      className="text-red-500 hover:bg-red-50 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                    >
+                      🗑️ Excluir
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </main>
       )}
     </div>
   );
