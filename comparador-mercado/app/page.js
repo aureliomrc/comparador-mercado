@@ -202,10 +202,10 @@ export default function Home() {
 
           if (data.elements && data.elements.length > 0) {
             const mercadosEncontrados = data.elements.map((el, index) => ({
-              id: el.id || index,
-              nome: (el.tags.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
+              id: `geo_${el.id || index}`,
+              nome: (el.tags?.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
               distancia: (Math.random() * 2 + 0.5).toFixed(1) + ' km',
-              fatorPreco: 1 + (index * 0.03 - 0.02)
+              fatorPreco: Number((1 + (index * 0.03 - 0.02)).toFixed(2))
             }));
             setMercadosReais(mercadosEncontrados);
             setUsandoGeo(true);
@@ -244,7 +244,7 @@ export default function Home() {
         body: JSON.stringify({
           mercado: nomeEstabelecimento,
           url: qrUrlInput,
-          fatorPreco: (0.85 + Math.random() * 0.25)
+          fatorPreco: Number((0.85 + Math.random() * 0.25).toFixed(2))
         })
       });
 
@@ -252,13 +252,13 @@ export default function Home() {
         const cupomSalvo = await res.json();
         const agora = new Date();
         const cupomTratado = {
-          id: cupomSalvo.id || Date.now(),
-          mercado: cupomSalvo.mercado || nomeEstabelecimento,
-          data: cupomSalvo.data || agora.toLocaleDateString('pt-BR'),
-          hora: cupomSalvo.hora || agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          fatorPreco: cupomSalvo.fatorPreco || 0.95,
-          tag: cupomSalvo.tag || 'CUPOM FISCAL',
-          corTag: cupomSalvo.corTag || 'bg-purple-100 text-purple-800'
+          id: cupomSalvo?.id || Date.now(),
+          mercado: cupomSalvo?.mercado || nomeEstabelecimento,
+          data: cupomSalvo?.data || agora.toLocaleDateString('pt-BR'),
+          hora: cupomSalvo?.hora || agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          fatorPreco: Number(cupomSalvo?.fatorPreco) || 0.95,
+          tag: cupomSalvo?.tag || 'CUPOM FISCAL',
+          corTag: cupomSalvo?.corTag || 'bg-purple-100 text-purple-800'
         };
 
         setHistoricoCupons(prev => [cupomTratado, ...prev]);
@@ -336,7 +336,7 @@ export default function Home() {
 
     const nomeFormatado = input.nome.trim().toUpperCase();
     const qtdInserida = Number(input.qtd) || 1;
-    const precoEstimadoBase = (Math.random() * 15 + 3).toFixed(2);
+    const precoEstimadoBase = Number((Math.random() * 15 + 3).toFixed(2));
     const marcaCalculada = obterMarcaParaItem(nomeFormatado);
 
     try {
@@ -377,7 +377,7 @@ export default function Home() {
           ...l,
           itens: (l.itens || []).map(item => {
             if (item.id === itemId) {
-              novaQtd = Math.max(1, item.qtd + delta);
+              novaQtd = Math.max(1, (item.qtd || 1) + delta);
               return { ...item, qtd: novaQtd };
             }
             return item;
@@ -627,31 +627,42 @@ export default function Home() {
     );
   }
 
-  // Cálculos para o comparador de preços
+  // ----------------------------------------------------
+  // LÓGICA DE CÁLCULO SEGURA PARA A ABA COMPARAR
+  // ----------------------------------------------------
   const listaSelecionada = listas.find(l => l.id === listaParaCompararId) || listas[0];
+
   const baseMercados = mercadosReais.length > 0 ? mercadosReais : [
-    { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
-    { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
-    { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
+    { id: 'm_101', nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
+    { id: 'm_102', nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
+    { id: 'm_103', nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
   ];
 
-  const cuponsFormatadosParaMercado = historicoCupons.map(c => ({
-    id: `cupom_${c.id || Math.random()}`,
-    idOriginalCupom: c.id,
-    nome: c.mercado || 'MERCADO VIA CUPOM',
-    distancia: c.data && c.hora ? `Bipado em ${c.data} às ${c.hora}` : 'Cupom Recente',
-    fatorPreco: c.fatorPreco || 0.95,
-    tag: c.tag || 'CUPOM FISCAL',
-    corTag: c.corTag || 'bg-purple-100 text-purple-800',
-    isCupom: true
-  }));
+  const cuponsFormatadosParaMercado = Array.isArray(historicoCupons) 
+    ? historicoCupons.map((c, index) => ({
+        id: `cupom_comp_${c.id || index}_${c.data || 'hoje'}`,
+        idOriginalCupom: c.id || index,
+        nome: c.mercado || 'MERCADO VIA CUPOM',
+        distancia: c.data && c.hora ? `Bipado em ${c.data} às ${c.hora}` : 'Cupom Recente',
+        fatorPreco: Number(c.fatorPreco) || 0.95,
+        tag: c.tag || 'CUPOM FISCAL',
+        corTag: c.corTag || 'bg-purple-100 text-purple-800',
+        isCupom: true
+      }))
+    : [];
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
   const itensDaListaAtiva = listaSelecionada?.itens || [];
-  const totalBase = itensDaListaAtiva.reduce((acc, i) => acc + ((i.precoEstimado || 8.5) * (i.qtd || 1)), 0);
 
-  const listaMercadosOrdenados = [...todosMercadosECupons].map(item => {
-    const totalCalculado = Number((totalBase * (item.fatorPreco || 1)).toFixed(2));
+  const totalBase = itensDaListaAtiva.reduce((acc, item) => {
+    const preco = Number(item.precoEstimado) || 8.5;
+    const quantidade = Number(item.qtd) || 1;
+    return acc + (preco * quantidade);
+  }, 0);
+
+  const listaMercadosOrdenados = todosMercadosECupons.map(item => {
+    const fator = Number(item.fatorPreco) || 1;
+    const totalCalculado = Number((totalBase * fator).toFixed(2));
     return { ...item, totalCalculado };
   }).sort((a, b) => a.totalCalculado - b.totalCalculado);
 
@@ -860,7 +871,7 @@ export default function Home() {
 
                   return (
                     <div 
-                      key={mercado.id || idx} 
+                      key={mercado.id || `mercado_idx_${idx}`} 
                       className={`rounded-2xl border transition-all overflow-hidden ${mercado.isCupom ? 'bg-purple-50/60 border-purple-300' : 'bg-white border-gray-200'} ${eOMaisBarato ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
                     >
                       <div className="p-4 flex items-center justify-between gap-3">
@@ -908,12 +919,15 @@ export default function Home() {
                           </h5>
                           <div className="divide-y divide-gray-200">
                             {itensDaListaAtiva.map(item => {
-                              const precoUn = ((item.precoEstimado || 8.5) * (mercado.fatorPreco || 1)).toFixed(2);
-                              const subtotal = (precoUn * (item.qtd || 1)).toFixed(2);
+                              const precoBase = Number(item.precoEstimado) || 8.5;
+                              const fator = Number(mercado.fatorPreco) || 1;
+                              const precoUn = Number((precoBase * fator).toFixed(2));
+                              const qtd = Number(item.qtd) || 1;
+                              const subtotal = Number((precoUn * qtd).toFixed(2));
                               const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
 
                               return (
-                                <div key={item.id} className="py-2 flex justify-between items-center text-xs">
+                                <div key={item.id || `item_detalhe_${Math.random()}`} className="py-2 flex justify-between items-center text-xs">
                                   <div>
                                     <div className="flex items-center gap-1.5">
                                       <span className="font-bold text-gray-800">{item.nome}</span>
@@ -922,10 +936,10 @@ export default function Home() {
                                       </span>
                                     </div>
                                     <span className="text-[10px] text-gray-400 block font-medium mt-0.5">
-                                      {item.qtd}x un · R$ {precoUn} cada
+                                      {qtd}x un · R$ {precoUn.toFixed(2)} cada
                                     </span>
                                   </div>
-                                  <span className="font-extrabold text-emerald-700">R$ {subtotal}</span>
+                                  <span className="font-extrabold text-emerald-700">R$ {subtotal.toFixed(2)}</span>
                                 </div>
                               );
                             })}
@@ -979,13 +993,13 @@ export default function Home() {
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
                   <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
-                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta e acessíveis de qualquer dispositivo!</p>
+                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta!</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {historicoCupons.map((cupom) => (
+                  {historicoCupons.map((cupom, idx) => (
                     <div 
-                      key={cupom.id} 
+                      key={cupom.id || `cupom_hist_${idx}`} 
                       className="bg-white border border-purple-200 rounded-2xl p-4 flex justify-between items-center shadow-sm"
                     >
                       <div>
