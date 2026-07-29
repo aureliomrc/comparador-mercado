@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// Função auxiliar para evitar estouro de renderização caso venha objeto do banco
 const renderTexto = (val, fallback = '') => {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') {
@@ -11,9 +10,21 @@ const renderTexto = (val, fallback = '') => {
   return String(val);
 };
 
-// ----------------------------------------------------
-// ERROR BOUNDARY (Proteção contra tela branca)
-// ----------------------------------------------------
+// Função auxiliar para buscar o preço do item no cupom pelo nome
+const buscarPrecoNoCupom = (itemNome, cupomItens) => {
+  if (!Array.isArray(cupomItens) || cupomItens.length === 0) return null;
+  
+  const nomeBuscado = (itemNome || '').toLowerCase().trim();
+  
+  // Tenta encontrar uma correspondência direta ou parcial do nome
+  const itemEncontrado = cupomItens.find(i => {
+    const nomeCupom = (i.nome || '').toLowerCase().trim();
+    return nomeCupom.includes(nomeBuscado) || nomeBuscado.includes(nomeCupom);
+  });
+
+  return itemEncontrado ? Number(itemEncontrado.preco) : null;
+};
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -57,14 +68,12 @@ function MainApp() {
   const [isLogged, setIsLogged] = useState(false);
   const [loadingListas, setLoadingListas] = useState(false);
   const [loadingCupons, setLoadingCupons] = useState(false);
-  const [activeTab, setActiveTab] = useState('listas'); // 'listas' | 'comparar' | 'cupons'
+  const [activeTab, setActiveTab] = useState('listas');
 
-  // Autenticação e Cadastro
   const [authMode, setAuthMode] = useState('login');
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   
-  // Campos de Cadastro
   const [nomeCompleto, setNomeCompleto] = useState('');
   const [emailCadastro, setEmailCadastro] = useState('');
   const [usuarioCadastro, setUsuarioCadastro] = useState('');
@@ -72,20 +81,17 @@ function MainApp() {
   const [aceitouLgpd, setAceitouLgpd] = useState(false);
   const [showTermosModal, setShowTermosModal] = useState(false);
 
-  // Listas de Compras
   const [listas, setListas] = useState([]);
   const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState({});
 
-  // Comparação e Geolocalização
   const [listaParaCompararId, setListaParaCompararId] = useState(null);
   const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  // Modais de QR Code / Cupom Fiscal / Histórico
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
@@ -93,7 +99,6 @@ function MainApp() {
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef(null);
 
-  // BUSCAR CUPONS DO BANCO DE DADOS
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
@@ -109,7 +114,6 @@ function MainApp() {
     }
   };
 
-  // BUSCAR LISTAS DO BANCO DE DADOS
   const carregarListasDoBanco = async () => {
     setLoadingListas(true);
     try {
@@ -163,9 +167,6 @@ function MainApp() {
     setScreen('login');
   };
 
-  // ----------------------------------------------------
-  // LEITOR DE QR CODE EM TEMPO REAL
-  // ----------------------------------------------------
   const iniciarScanner = async () => {
     setCameraError('');
     try {
@@ -228,9 +229,6 @@ function MainApp() {
     }
   }, [showQrModal]);
 
-  // ----------------------------------------------------
-  // GEOLOCALIZAÇÃO
-  // ----------------------------------------------------
   const buscarMercadosProximos = () => {
     if (!navigator.geolocation) {
       alert('Geolocalização não é suportada pelo seu navegador.');
@@ -274,9 +272,6 @@ function MainApp() {
     );
   };
 
-  // ----------------------------------------------------
-  // SALVAR CUPOM NO BANCO DE DADOS
-  // ----------------------------------------------------
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
     if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
@@ -291,8 +286,7 @@ function MainApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mercado: nomeEstabelecimento,
-          url: qrUrlInput,
-          fatorPreco: (0.85 + Math.random() * 0.25)
+          url: qrUrlInput
         })
       });
 
@@ -328,9 +322,6 @@ function MainApp() {
     return 'MARCA SEFAZ';
   };
 
-  // ----------------------------------------------------
-  // AÇÕES DAS LISTAS
-  // ----------------------------------------------------
   const criarNovaLista = async (e) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
@@ -468,9 +459,6 @@ function MainApp() {
     }
   };
 
-  // ----------------------------------------------------
-  // TELA DE LOGIN / CADASTRO
-  // ----------------------------------------------------
   if (screen === 'login' && !isLogged) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
@@ -663,8 +651,10 @@ function MainApp() {
     );
   }
 
-  // Cálculos para o comparador de preços
+  // CÁLCULO DE COMPARAÇÃO ITEM A ITEM
   const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0];
+  const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
+
   const baseMercados = (Array.isArray(mercadosReais) && mercadosReais.length > 0) ? mercadosReais : [
     { id: 101, nome: 'SUPERMERCADO CARREFOUR', distancia: '1.2 km', fatorPreco: 0.98, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
     { id: 102, nome: 'SUPERMERCADO EXTRA', distancia: '2.5 km', fatorPreco: 1.02, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' },
@@ -676,24 +666,59 @@ function MainApp() {
     idOriginalCupom: c.id,
     nome: renderTexto(c.mercado, 'MERCADO VIA CUPOM'),
     distancia: `Bipado em ${c.data || 'Hoje'} às ${c.hora || ''}`,
-    fatorPreco: c.fatorPreco || 0.95,
-    tag: c.tag || 'CUPOM',
+    tag: c.tag || 'CUPOM FISCAL',
     corTag: c.corTag || 'bg-purple-100 text-purple-800',
-    isCupom: true
+    isCupom: true,
+    itensCupom: c.itens || [] // Lista de produtos lidos da nota
   }));
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
-  const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
-  const totalBase = itensDaListaAtiva.reduce((acc, i) => acc + ((Number(i.precoEstimado) || 8.5) * (Number(i.qtd) || 1)), 0);
 
-  const listaMercadosOrdenados = [...todosMercadosECupons].map(item => {
-    const totalCalculado = Number((totalBase * (item.fatorPreco || 1)).toFixed(2));
-    return { ...item, totalCalculado };
+  // Cálculo detalhado por mercado/cupom
+  const listaMercadosOrdenados = todosMercadosECupons.map(mercado => {
+    let totalCalculado = 0;
+
+    const itensDetalhado = itensDaListaAtiva.map(item => {
+      let precoUn;
+      let origemPreco; // 'cupom' ou 'sefaz'
+
+      if (mercado.isCupom) {
+        // Tenta buscar o preço do item diretamente nos produtos do cupom
+        const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
+        if (precoCupom !== null) {
+          precoUn = precoCupom;
+          origemPreco = 'cupom';
+        } else {
+          // Caso o item da lista não esteja na nota, usa a estimativa SEFAZ
+          precoUn = Number(item.precoEstimado) || 8.5;
+          origemPreco = 'sefaz';
+        }
+      } else {
+        // Mercados padrão usam estimativa/fator
+        precoUn = (Number(item.precoEstimado) || 8.5) * (mercado.fatorPreco || 1);
+        origemPreco = 'sefaz';
+      }
+
+      const subtotal = precoUn * (Number(item.qtd) || 1);
+      totalCalculado += subtotal;
+
+      return {
+        ...item,
+        precoUnCalculado: precoUn.toFixed(2),
+        subtotalCalculado: subtotal.toFixed(2),
+        origemPreco
+      };
+    });
+
+    return {
+      ...mercado,
+      totalCalculado: Number(totalCalculado.toFixed(2)),
+      itensDetalhado
+    };
   }).sort((a, b) => a.totalCalculado - b.totalCalculado);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] pb-24 font-sans">
-      {/* CABEÇALHO FIXO */}
       <header className="bg-white border-b sticky top-0 z-30 px-4 py-3 shadow-sm">
         <div className="max-w-xl mx-auto flex justify-between items-center">
           <h1 className="text-base font-extrabold text-[#0d824d] flex items-center gap-1.5">
@@ -710,10 +735,7 @@ function MainApp() {
         </div>
       </header>
 
-      {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-xl mx-auto p-4 space-y-4">
-
-        {/* ABA 1: MINHAS LISTAS */}
         {activeTab === 'listas' && (
           <div className="space-y-4">
             <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-2">
@@ -851,7 +873,7 @@ function MainApp() {
           </div>
         )}
 
-        {/* ABA 2: COMPARAR PREÇOS */}
+        {/* ABA COMPARAR */}
         {activeTab === 'comparar' && (
           <div className="space-y-4">
             <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-3">
@@ -881,7 +903,6 @@ function MainApp() {
               </button>
             </div>
 
-            {/* RANKING DE MERCADOS */}
             {!listaSelecionada || !listaSelecionada.itens || listaSelecionada.itens.length === 0 ? (
               <div className="bg-white p-8 rounded-2xl text-center border space-y-2">
                 <span className="text-3xl">📊</span>
@@ -926,7 +947,7 @@ function MainApp() {
                         </div>
 
                         <div className="text-right">
-                          <span className="text-[9px] text-gray-400 font-bold block uppercase">Total Estimado</span>
+                          <span className="text-[9px] text-gray-400 font-bold block uppercase">Total Calculado</span>
                           <span className="text-base font-black text-emerald-600 block">R$ {mercado.totalCalculado.toFixed(2)}</span>
                           <button
                             onClick={() => setMercadoSelecionadoDetalhe(estaAbertoDetalhe ? null : mercado.id)}
@@ -940,12 +961,10 @@ function MainApp() {
                       {estaAbertoDetalhe && (
                         <div className="bg-gray-50 p-3.5 border-t border-gray-100 space-y-2">
                           <h5 className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                            Estimativa de Itens ({renderTexto(mercado.nome)}):
+                            Detalhamento de Itens ({renderTexto(mercado.nome)}):
                           </h5>
                           <div className="divide-y divide-gray-200">
-                            {itensDaListaAtiva.map(item => {
-                              const precoUn = ((item.precoEstimado || 8.5) * (mercado.fatorPreco || 1)).toFixed(2);
-                              const subtotal = (precoUn * (item.qtd || 1)).toFixed(2);
+                            {mercado.itensDetalhado.map(item => {
                               const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
 
                               return (
@@ -956,12 +975,21 @@ function MainApp() {
                                       <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
                                         🏷️ {renderTexto(marcaExibicao)}
                                       </span>
+                                      {item.origemPreco === 'cupom' ? (
+                                        <span className="text-[8px] bg-purple-100 text-purple-800 font-extrabold px-1.5 py-0.5 rounded">
+                                          ✓ Preço do Cupom
+                                        </span>
+                                      ) : (
+                                        <span className="text-[8px] bg-gray-200 text-gray-600 font-semibold px-1.5 py-0.5 rounded">
+                                          Média SEFAZ
+                                        </span>
+                                      )}
                                     </div>
                                     <span className="text-[10px] text-gray-400 block font-medium mt-0.5">
-                                      {item.qtd}x un · R$ {precoUn} cada
+                                      {item.qtd}x un · R$ {item.precoUnCalculado} cada
                                     </span>
                                   </div>
-                                  <span className="font-extrabold text-emerald-700">R$ {subtotal}</span>
+                                  <span className="font-extrabold text-emerald-700">R$ {item.subtotalCalculado}</span>
                                 </div>
                               );
                             })}
@@ -976,7 +1004,6 @@ function MainApp() {
           </div>
         )}
 
-        {/* ABA 3: CUPONS & QR CODE */}
         {activeTab === 'cupons' && (
           <div className="space-y-4">
             <div className="bg-purple-900 text-white p-5 rounded-3xl shadow-lg space-y-3">
@@ -996,7 +1023,6 @@ function MainApp() {
               </button>
             </div>
 
-            {/* HISTÓRICO DE CUPONS DO BANCO DE DADOS */}
             <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
@@ -1027,7 +1053,7 @@ function MainApp() {
                       <div>
                         <h4 className="text-xs font-extrabold text-gray-800">{renderTexto(cupom.mercado)}</h4>
                         <p className="text-[10px] text-purple-700 font-medium mt-0.5">
-                          📅 {renderTexto(cupom.data, 'Hoje')} às {renderTexto(cupom.hora, '')}
+                          📅 {renderTexto(cupom.data, 'Hoje')} às {renderTexto(cupom.hora, '')} · {cupom.itens?.length || 0} produtos identificados
                         </p>
                       </div>
 
@@ -1046,7 +1072,6 @@ function MainApp() {
         )}
       </main>
 
-      {/* BARRA DE NAVEGAÇÃO INFERIOR */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 px-4 py-2">
         <div className="max-w-md mx-auto flex justify-around items-center">
           <button
@@ -1081,7 +1106,6 @@ function MainApp() {
         </div>
       </nav>
 
-      {/* MODAL DE LEITURA DE QR CODE */}
       {showQrModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
