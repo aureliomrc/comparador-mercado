@@ -11,6 +11,24 @@ const renderTexto = (val, fallback = '') => {
   return String(val);
 };
 
+// Helper para extrair os itens com segurança (trata Strings JSON e nomes variados de propriedades)
+const obterItensCupom = (cupom) => {
+  if (!cupom) return [];
+  let rawItens = cupom.itens || cupom.items || cupom.produtos || [];
+
+  // Se o banco retornou como String (ex: JSON.stringify), faz o parse
+  if (typeof rawItens === 'string') {
+    try {
+      rawItens = JSON.parse(rawItens);
+    } catch (e) {
+      console.error('Erro ao converter JSON dos itens do cupom:', e);
+      return [];
+    }
+  }
+
+  return Array.isArray(rawItens) ? rawItens : [];
+};
+
 // 📚 DICIONÁRIO DE SINÔNIMOS E ABREVIAÇÕES DE SUPERMERCADO
 const DICIONARIO_ABREVIACOES = {
   // Tipos e Categorias
@@ -74,7 +92,8 @@ const normalizarETraduzirTexto = (texto) => {
 
 // 2. Busca Inteligente com Dicionário + Token Matching
 const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
-  if (!Array.isArray(cupomItens) || cupomItens.length === 0 || !itemNomeLista) return null;
+  const listaProdutos = Array.isArray(cupomItens) ? cupomItens : [];
+  if (listaProdutos.length === 0 || !itemNomeLista) return null;
 
   const palavrasBusca = normalizarETraduzirTexto(itemNomeLista);
   if (palavrasBusca.length === 0) return null;
@@ -82,8 +101,8 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
   let melhorMatch = null;
   let maiorPontuacao = 0;
 
-  for (const itemCupom of cupomItens) {
-    const nomeItemCupom = itemCupom.nome || itemCupom.descricao || itemCupom.product || '';
+  for (const itemCupom of listaProdutos) {
+    const nomeItemCupom = itemCupom.nome || itemCupom.descricao || itemCupom.product || itemCupom.dsc || '';
     const palavrasCupom = normalizarETraduzirTexto(nomeItemCupom);
     
     let correspondencias = 0;
@@ -101,7 +120,7 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
     }
   }
 
-  const preco = melhorMatch ? (melhorMatch.preco || melhorMatch.precoUnitario || melhorMatch.val) : null;
+  const preco = melhorMatch ? (melhorMatch.preco || melhorMatch.precoUnitario || melhorMatch.val || melhorMatch.valor) : null;
   return preco ? Number(preco) : null;
 };
 
@@ -750,7 +769,7 @@ function MainApp() {
     tag: c.tag || 'CUPOM FISCAL',
     corTag: c.corTag || 'bg-purple-100 text-purple-800',
     isCupom: true,
-    itensCupom: c.itens || [] 
+    itensCupom: obterItensCupom(c)
   }));
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
@@ -1125,7 +1144,7 @@ function MainApp() {
                 <div className="space-y-3">
                   {(Array.isArray(historicoCupons) ? historicoCupons : []).map((cupom) => {
                     const estaAberto = !!cuponsAbertos[cupom.id];
-                    const itensDoCupom = Array.isArray(cupom.itens) ? cupom.itens : [];
+                    const itensDoCupom = obterItensCupom(cupom);
 
                     return (
                       <div 
@@ -1167,20 +1186,20 @@ function MainApp() {
                         {estaAberto && (
                           <div className="bg-purple-50/50 p-3.5 border-t border-purple-100 space-y-2">
                             <h5 className="text-[10px] font-extrabold text-purple-900 uppercase tracking-wider flex justify-between">
-                              <span>Produtos extraídos da SEFAZ:</span>
+                              <span>Produtos extraídos da SEFAZ ({itensDoCupom.length}):</span>
                               <span className="text-[9px] text-purple-600 font-normal">Exibição exata do banco</span>
                             </h5>
 
                             {itensDoCupom.length === 0 ? (
                               <p className="text-xs font-bold text-gray-500 italic p-2 bg-white rounded-xl border border-dashed text-center">
-                                Nenhum item foi extraído deste cupom (lista de produtos está vazia no banco).
+                                Nenhum item foi extraído deste cupom ou a lista no banco está vazia.
                               </p>
                             ) : (
                               <div className="divide-y divide-purple-100 bg-white rounded-xl border border-purple-200 overflow-hidden">
                                 {itensDoCupom.map((prod, pIdx) => {
-                                  const nomeProduto = prod.nome || prod.descricao || prod.product || prod.title || 'SEM NOME';
-                                  const precoProduto = prod.preco || prod.precoUnitario || prod.val || '0.00';
-                                  const qtdProduto = prod.qtd || prod.quantidade || 1;
+                                  const nomeProduto = prod.nome || prod.descricao || prod.product || prod.title || prod.dsc || 'SEM NOME';
+                                  const precoProduto = prod.preco || prod.precoUnitario || prod.val || prod.valor || 0;
+                                  const qtdProduto = prod.qtd || prod.quantidade || prod.qnt || 1;
 
                                   return (
                                     <div key={pIdx} className="p-2.5 flex justify-between items-center text-xs hover:bg-purple-50/30">
