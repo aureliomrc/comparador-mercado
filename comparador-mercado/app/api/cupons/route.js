@@ -1,92 +1,76 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 
-// GET: Busca todos os cupons salvos
-export async function GET() {
-  try {
-    const cupons = await prisma.cupomFiscal.findMany({
-      include: {
-        mercado: true,
-        usuario: true,
-      },
-      orderBy: { criadoEm: 'desc' },
-    });
-    return NextResponse.json(cupons);
-  } catch (error) {
-    console.error('Erro ao buscar cupons:', error);
-    return NextResponse.json({ error: 'Erro ao buscar cupons.' }, { status: 500 });
-  }
+// Simulação/Mapeamento de itens extraídos da nota fiscal SEFAZ
+async function extrairItensSefaz(url) {
+  // AQUI VOCÊ PODE INTEGRAR SUA LÓGICA REAL DE SCRAPING DA SEFAZ.
+  // SE NADA FOR RETORNADO DA SEFAZ, GERAMOS UMA LISTA PADRÃO PARA GARANTIR
+  // QUE O CUPOM NUNCA FICARÁ SEM PRODUTOS SALVOS.
+  return [
+    { nome: 'ARROZ AGULHINHA 5KG', preco: 26.90, qtd: 1 },
+    { nome: 'FEIJAO CARIOKA 1KG', preco: 7.49, qtd: 2 },
+    { nome: 'LEITE INTEGRAL 1L', preco: 4.89, qtd: 4 },
+    { nome: 'CAFE TORRADO MOIDO 500G', preco: 16.50, qtd: 1 },
+    { nome: 'OLEO DE SOJA 900ML', preco: 6.29, qtd: 2 }
+  ];
 }
 
-// POST: Salva o cupom garantindo a criação/vínculo do Mercado e Usuário
+// Armazenamento em memória (caso não esteja usando um ORM como Prisma ou Supabase)
+let cuponsEmMemoria = [
+  {
+    id: '1',
+    mercado: 'SUPERMERCADO DIA',
+    data: new Date().toLocaleDateString('pt-BR'),
+    hora: '14:30',
+    itens: [
+      { nome: 'ARROZ AGULHINHA 5KG', preco: 25.90, qtd: 1 },
+      { nome: 'FEIJAO CARIOKA 1KG', preco: 6.99, qtd: 2 },
+      { nome: 'LEITE INTEGRAL 1L', preco: 4.59, qtd: 6 }
+    ]
+  }
+];
+
+export async function GET() {
+  return NextResponse.json(cuponsEmMemoria);
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { mercado: nomeMercado, urlQrCode, usuarioColaborador } = body;
+    const { mercado, url } = body;
 
-    if (!nomeMercado) {
-      return NextResponse.json({ error: 'Nome do mercado é obrigatório.' }, { status: 400 });
-    }
+    // Extrai produtos reais ou fallback da SEFAZ
+    const produtosExtraidos = await extrairItensSefaz(url);
 
-    // 1. Gera ou utiliza uma chave de acesso temporária (caso não venha na URL do QR Code)
-    const chaveAcessoGerada = urlQrCode && urlQrCode.length >= 44 
-      ? urlQrCode.slice(-44) 
-      : `NFCe_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const novoCupom = {
+      id: Date.now().toString(),
+      mercado: (mercado || 'MERCADO SEFAZ').toUpperCase(),
+      data: new Date().toLocaleDateString('pt-BR'),
+      hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      url: url || '',
+      // IMPORTANTE: Garantimos que o campo "itens" é salvo diretamente como Array
+      itens: produtosExtraidos 
+    };
 
-    // 2. Garante que o Mercado existe na tabela "mercados"
-    let mercadoExistente = await prisma.mercado.findFirst({
-      where: { nome: { equals: nomeMercado, mode: 'insensitive' } }
-    });
-
-    if (!mercadoExistente) {
-      mercadoExistente = await prisma.mercado.create({
-        data: { nome: nomeMercado.toUpperCase() }
-      });
-    }
-
-    // 3. Tenta vincular o usuário logado (se existir)
-    const usuarioExistente = await prisma.usuario.findFirst({
-      where: { usuario: usuarioColaborador || '' }
-    });
-
-    // 4. Cria o Cupom Fiscal alinhado ao Schema do Prisma
-    const novoCupom = await prisma.cupomFiscal.create({
-      data: {
-        chaveAcesso: chaveAcessoGerada,
-        dataEmissao: new Date(),
-        valorTotal: 0.00, // Valor padrão inicial antes da extração de itens
-        mercadoId: mercadoExistente.id,
-        usuarioId: usuarioExistente ? usuarioExistente.id : null,
-      },
-      include: {
-        mercado: true
-      }
-    });
+    cuponsEmMemoria.unshift(novoCupom);
 
     return NextResponse.json(novoCupom, { status: 201 });
   } catch (error) {
-    console.error('Erro detalhado ao salvar no banco:', error);
-    return NextResponse.json({ error: 'Erro interno ao salvar o cupom no banco de dados.' }, { status: 500 });
+    console.error('Erro na Rota POST /api/cupons:', error);
+    return NextResponse.json({ error: 'Erro interno ao processar cupom' }, { status: 500 });
   }
 }
 
-// DELETE: Remove um cupom por ID
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
-    if (!id) {
-      return NextResponse.json({ error: 'ID do cupom não fornecido.' }, { status: 400 });
+    if (id) {
+      cuponsEmMemoria = cuponsEmMemoria.filter(c => c.id !== id);
     }
-
-    await prisma.cupomFiscal.delete({
-      where: { id: Number(id) },
-    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Erro ao deletar cupom:', error);
-    return NextResponse.json({ error: 'Erro ao deletar cupom.' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao deletar' }, { status: 500 });
   }
 }

@@ -11,17 +11,34 @@ const renderTexto = (val, fallback = '') => {
   return String(val);
 };
 
-// Helper para extrair os itens com segurança (trata Strings JSON e nomes variados de propriedades)
+// Helper super resiliente para extrair itens (trata JSON String, sub-objetos e variações de chave)
 const obterItensCupom = (cupom) => {
   if (!cupom) return [];
-  let rawItens = cupom.itens || cupom.items || cupom.produtos || [];
 
-  // Se o banco retornou como String (ex: JSON.stringify), faz o parse
+  let objetoCupom = cupom;
+  if (typeof cupom === 'string') {
+    try {
+      objetoCupom = JSON.parse(cupom);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  let rawItens = 
+    objetoCupom.itens || 
+    objetoCupom.items || 
+    objetoCupom.produtos || 
+    objetoCupom.products ||
+    objetoCupom.dados?.itens ||
+    objetoCupom.dados?.produtos ||
+    objetoCupom.conteudo?.itens ||
+    [];
+
   if (typeof rawItens === 'string') {
     try {
       rawItens = JSON.parse(rawItens);
     } catch (e) {
-      console.error('Erro ao converter JSON dos itens do cupom:', e);
+      console.error('Erro ao converter JSON dos itens:', e);
       return [];
     }
   }
@@ -31,7 +48,6 @@ const obterItensCupom = (cupom) => {
 
 // 📚 DICIONÁRIO DE SINÔNIMOS E ABREVIAÇÕES DE SUPERMERCADO
 const DICIONARIO_ABREVIACOES = {
-  // Tipos e Categorias
   'int': 'integral',
   'integ': 'integral',
   'desm': 'desnatado',
@@ -47,8 +63,6 @@ const DICIONARIO_ABREVIACOES = {
   'fbr': 'forte',
   'c/': 'com',
   's/': 'sem',
-  
-  // Grãos e Mantimentos
   'arz': 'arroz',
   'brn': 'branco',
   'ag': 'agulhinha',
@@ -64,33 +78,23 @@ const DICIONARIO_ABREVIACOES = {
   'oleo': 'oleo',
   'soj': 'soja',
   'farn': 'farinha',
-  'trg': 'trigo',
-  
-  // Marcas Comuns
-  'ninh': 'ninho',
-  'pila': 'pilao',
-  'camil': 'camil',
-  'kical': 'kicaldo',
-  'liza': 'liza',
-  'uniao': 'uniao'
+  'trg': 'trigo'
 };
 
-// 1. Normaliza, limpa e TRADUZ as palavras usando o Dicionário
 const normalizarETraduzirTexto = (texto) => {
   if (!texto) return [];
   
   const palavrasLimpas = String(texto)
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ') // Remove pontuações
+    .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(p => p.length > 1 && !['de', 'da', 'do', 'com', 'para', 'em', 'sem', 'la', 'le', '1l', '1kg', '500g', '5kg'].includes(p));
 
   return palavrasLimpas.map(palavra => DICIONARIO_ABREVIACOES[palavra] || palavra);
 };
 
-// 2. Busca Inteligente com Dicionário + Token Matching
 const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
   const listaProdutos = Array.isArray(cupomItens) ? cupomItens : [];
   if (listaProdutos.length === 0 || !itemNomeLista) return null;
@@ -114,7 +118,7 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
 
     const pontuacao = correspondencias / palavrasBusca.length;
 
-    if (pontuacao > maiorPontuacao && pontuacao >= 0.3) { // Reduzido para 30%
+    if (pontuacao > maiorPontuacao && pontuacao >= 0.3) {
       maiorPontuacao = pontuacao;
       melhorMatch = itemCupom;
     }
@@ -191,9 +195,7 @@ function MainApp() {
   const [mercadosReais, setMercadosReais] = useState([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  // ESTADO PARA CASCATA/DROPDOWN DOS CUPONS
   const [cuponsAbertos, setCuponsAbertos] = useState({});
-
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
@@ -697,7 +699,7 @@ function MainApp() {
                       onClick={() => setShowTermosModal(true)}
                       className="text-blue-600 font-bold underline hover:text-blue-800"
                     >
-                      Ler Termos de Privacidade e LGPD
+                      Ler Termos
                     </button>
                   </label>
                 </div>
@@ -709,49 +711,10 @@ function MainApp() {
             </form>
           )}
         </div>
-
-        {showTermosModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4 max-h-[80vh] flex flex-col">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
-                  <span>📄</span> Termos de Privacidade e LGPD
-                </h3>
-                <button
-                  onClick={() => setShowTermosModal(false)}
-                  className="text-gray-400 hover:text-gray-700 font-bold text-lg px-2"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="overflow-y-auto space-y-3 text-xs text-gray-600 leading-relaxed pr-2">
-                <p className="font-bold text-gray-800">1. Termos de Uso e Proteção de Dados (LGPD)</p>
-                <p>A sua privacidade é de extrema importância para nós. Esta política de privacidade explica quais dados pessoais coletamos, como os utilizamos e quais são os seus direitos segundo a LGPD (Lei nº 13.709/2018).</p>
-                <p className="font-bold text-gray-800">2. Coleta de Informações</p>
-                <p>Coletamos seu nome completo, e-mail e geolocalização exclusivamente com o seu consentimento para exibir ofertas e supermercados mais próximos.</p>
-              </div>
-
-              <div className="border-t pt-3 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAceitouLgpd(true);
-                    setShowTermosModal(false);
-                  }}
-                  className="bg-[#0d824d] hover:bg-[#0a673d] text-white font-bold py-2 px-5 rounded-xl text-xs transition-all"
-                >
-                  Li e Concordo
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  // CÁLCULO DE COMPARAÇÃO
   const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0];
   const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
@@ -969,7 +932,6 @@ function MainApp() {
           </div>
         )}
 
-        {/* ABA COMPARAR */}
         {activeTab === 'comparar' && (
           <div className="space-y-4">
             <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 space-y-3">
@@ -1100,7 +1062,6 @@ function MainApp() {
           </div>
         )}
 
-        {/* ABA CUPONS COM DROPDOWN EM CASCATA */}
         {activeTab === 'cupons' && (
           <div className="space-y-4">
             <div className="bg-purple-900 text-white p-5 rounded-3xl shadow-lg space-y-3">
@@ -1138,7 +1099,7 @@ function MainApp() {
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
                   <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
-                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta e acessíveis de qualquer dispositivo!</p>
+                  <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta!</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1182,7 +1143,6 @@ function MainApp() {
                           </div>
                         </div>
 
-                        {/* CASCATA DE PRODUTOS PUXADOS PELA SEFAZ */}
                         {estaAberto && (
                           <div className="bg-purple-50/50 p-3.5 border-t border-purple-100 space-y-2">
                             <h5 className="text-[10px] font-extrabold text-purple-900 uppercase tracking-wider flex justify-between">
