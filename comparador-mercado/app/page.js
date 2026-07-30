@@ -26,7 +26,7 @@ const renderTexto = (val, fallback = '') => {
   return String(val);
 };
 
-// Helper super resiliente para extrair itens (trata JSON String, sub-objetos e variações de chave)
+// Helper para extrair itens do cupom
 const obterItensCupom = (cupom) => {
   if (!cupom) return [];
 
@@ -61,44 +61,19 @@ const obterItensCupom = (cupom) => {
   return Array.isArray(rawItens) ? rawItens : [];
 };
 
-// 📚 DICIONÁRIO DE SINÔNIMOS E ABREVIAÇÕES DE SUPERMERCADO
+// Dicionário de abreviações de supermercado
 const DICIONARIO_ABREVIACOES = {
-  'int': 'integral',
-  'integ': 'integral',
-  'desm': 'desnatado',
-  'semid': 'semidesnatado',
-  'lt': 'leite',
-  'lte': 'leite',
-  'tp': 'tetrapack',
-  'cx': 'caixa',
-  'pote': 'pote',
-  'pdr': 'padrao',
-  'trad': 'tradicional',
-  'ext': 'extra',
-  'fbr': 'forte',
-  'c/': 'com',
-  's/': 'sem',
-  'arz': 'arroz',
-  'brn': 'branco',
-  'ag': 'agulhinha',
-  'feij': 'feijao',
-  'carioc': 'carioquinha',
-  'prt': 'preto',
-  'acuc': 'acucar',
-  'ref': 'refinado',
-  'cryst': 'cristal',
-  'caf': 'cafe',
-  'tost': 'torrado',
-  'oido': 'moido',
-  'oleo': 'oleo',
-  'soj': 'soja',
-  'farn': 'farinha',
-  'trg': 'trigo'
+  'int': 'integral', 'integ': 'integral', 'desm': 'desnatado', 'semid': 'semidesnatado',
+  'lt': 'leite', 'lte': 'leite', 'tp': 'tetrapack', 'cx': 'caixa', 'pote': 'pote',
+  'pdr': 'padrao', 'trad': 'tradicional', 'ext': 'extra', 'fbr': 'forte', 'c/': 'com',
+  's/': 'sem', 'arz': 'arroz', 'brn': 'branco', 'ag': 'agulhinha', 'feij': 'feijao',
+  'carioc': 'carioquinha', 'prt': 'preto', 'acuc': 'acucar', 'ref': 'refinado',
+  'cryst': 'cristal', 'caf': 'cafe', 'tost': 'torrado', 'oido': 'moido', 'oleo': 'oleo',
+  'soj': 'soja', 'farn': 'farinha', 'trg': 'trigo'
 };
 
 const normalizarETraduzirTexto = (texto) => {
   if (!texto) return [];
-  
   const palavrasLimpas = String(texto)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -199,7 +174,6 @@ function MainApp() {
   const [aceitouLgpd, setAceitouLgpd] = useState(false);
   const [showTermosModal, setShowTermosModal] = useState(false);
 
-  // Inicializa o estado com a Lista Padrão
   const [listas, setListas] = useState(LISTA_PADRAO);
   const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
@@ -240,7 +214,6 @@ function MainApp() {
       const res = await fetch('/api/listas', { cache: 'no-store' });
       if (res.ok) {
         const dados = await res.json();
-        // Se o banco trouxer listas, usa as do banco; caso contrário, mantém a lista padrão
         const listaTratada = Array.isArray(dados) && dados.length > 0 ? dados : LISTA_PADRAO;
         setListas(listaTratada);
         
@@ -397,6 +370,7 @@ function MainApp() {
     );
   };
 
+  // 🔥 SALVAMENTO RÍGIDO NO SERVIDOR (SEM FALLBACK LOCAL)
   const processarCupomQrCode = async (e) => {
     e.preventDefault();
     if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
@@ -411,7 +385,9 @@ function MainApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mercado: nomeEstabelecimento,
-          url: qrUrlInput
+          url: qrUrlInput,
+          data: new Date().toLocaleDateString('pt-BR'),
+          hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         })
       });
 
@@ -421,18 +397,30 @@ function MainApp() {
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
+        alert('✅ Cupom salvo no banco de dados com sucesso!');
       } else {
-        alert('Erro ao salvar cupom no servidor.');
+        const errorData = await res.json().catch(() => null);
+        const mensagemErro = errorData?.error || errorData?.message || `Status HTTP ${res.status}`;
+        alert(`❌ Erro ao salvar no servidor: ${mensagemErro}`);
       }
     } catch (err) {
-      console.error('Erro ao salvar cupom:', err);
+      console.error('Erro de conexão ao salvar cupom:', err);
+      alert('❌ Falha de conexão. O servidor está offline ou a rota /api/cupons está inacessível.');
     }
   };
 
   const excluirCupom = async (id) => {
     if (confirm('Deseja excluir este cupom do banco de dados?')) {
-      setHistoricoCupons(prev => prev.filter(c => c.id !== id));
-      await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
+      try {
+        const res = await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+        } else {
+          alert('Erro ao excluir do banco de dados.');
+        }
+      } catch (err) {
+        console.error('Erro de conexão ao excluir cupom:', err);
+      }
     }
   };
 
@@ -464,7 +452,7 @@ function MainApp() {
         setListaParaCompararId(novaListaCriada.id);
         setNovaListaNome('');
       } else {
-        alert('Ocorreu um erro ao salvar no banco. Tente novamente.');
+        alert('Ocorreu um erro ao salvar a lista no banco.');
       }
     } catch (err) {
       console.error('Erro ao criar lista:', err);
@@ -515,22 +503,7 @@ function MainApp() {
         }));
         setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
       } else {
-        // Fallback local se o endpoint não estiver ativo
-        const itemLocal = {
-          id: Date.now().toString(),
-          nome: nomeFormatado,
-          qtd: qtdInserida,
-          precoEstimado: precoEstimadoBase,
-          marca: marcaCalculada,
-          marcado: false
-        };
-        setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
-          if (l.id === listaId) {
-            return { ...l, itens: [...(Array.isArray(l.itens) ? l.itens : []), itemLocal] };
-          }
-          return l;
-        }));
-        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
+        alert('Erro ao salvar item no banco de dados.');
       }
     } catch (err) {
       console.error('Erro ao adicionar item:', err);
