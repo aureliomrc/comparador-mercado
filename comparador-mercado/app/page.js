@@ -2,6 +2,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
+// 🛒 LISTA PADRÃO EXIBIDA CASO O BANCO DE DADOS NÃO RETORNE LISTAS
+const LISTA_PADRAO = [
+  {
+    id: 'lista_padrao',
+    nome: 'COMPRAS DO MÊS',
+    itens: [
+      { id: '1', nome: 'ARROZ 5KG', qtd: 1, marcado: false, precoEstimado: 25.90, marca: 'CAMIL' },
+      { id: '2', nome: 'FEIJÃO CARIOCA 1KG', qtd: 2, marcado: false, precoEstimado: 7.50, marca: 'KICALDO' },
+      { id: '3', nome: 'LEITE INTEGRAL 1L', qtd: 12, marcado: false, precoEstimado: 4.80, marca: 'NINHO' },
+      { id: '4', nome: 'CAFÉ MOÍDO 500G', qtd: 2, marcado: false, precoEstimado: 16.90, marca: 'PILÃO' },
+      { id: '5', nome: 'AÇÚCAR REFINADO 1KG', qtd: 3, marcado: false, precoEstimado: 4.20, marca: 'UNIÃO' }
+    ]
+  }
+];
+
 // Helper para exibição segura de textos/objetos
 const renderTexto = (val, fallback = '') => {
   if (val === null || val === undefined) return fallback;
@@ -184,12 +199,13 @@ function MainApp() {
   const [aceitouLgpd, setAceitouLgpd] = useState(false);
   const [showTermosModal, setShowTermosModal] = useState(false);
 
-  const [listas, setListas] = useState([]);
+  // Inicializa o estado com a Lista Padrão
+  const [listas, setListas] = useState(LISTA_PADRAO);
   const [listasAbertas, setListasAbertas] = useState({});
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState({});
 
-  const [listaParaCompararId, setListaParaCompararId] = useState(null);
+  const [listaParaCompararId, setListaParaCompararId] = useState('lista_padrao');
   const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState([]);
@@ -224,14 +240,19 @@ function MainApp() {
       const res = await fetch('/api/listas', { cache: 'no-store' });
       if (res.ok) {
         const dados = await res.json();
-        const listaTratada = Array.isArray(dados) ? dados : [];
+        // Se o banco trouxer listas, usa as do banco; caso contrário, mantém a lista padrão
+        const listaTratada = Array.isArray(dados) && dados.length > 0 ? dados : LISTA_PADRAO;
         setListas(listaTratada);
-        if (listaTratada.length > 0 && !listaParaCompararId) {
+        
+        if (listaTratada.length > 0) {
           setListaParaCompararId(listaTratada[0].id);
         }
+      } else {
+        setListas(LISTA_PADRAO);
       }
     } catch (error) {
       console.error('Erro ao conectar com o banco:', error);
+      setListas(LISTA_PADRAO);
     } finally {
       setLoadingListas(false);
     }
@@ -266,7 +287,7 @@ function MainApp() {
   const handleLogout = () => {
     pararScanner();
     setIsLogged(false);
-    setListas([]);
+    setListas(LISTA_PADRAO);
     setHistoricoCupons([]);
     setScreen('login');
   };
@@ -493,6 +514,23 @@ function MainApp() {
           return l;
         }));
         setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
+      } else {
+        // Fallback local se o endpoint não estiver ativo
+        const itemLocal = {
+          id: Date.now().toString(),
+          nome: nomeFormatado,
+          qtd: qtdInserida,
+          precoEstimado: precoEstimadoBase,
+          marca: marcaCalculada,
+          marcado: false
+        };
+        setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
+          if (l.id === listaId) {
+            return { ...l, itens: [...(Array.isArray(l.itens) ? l.itens : []), itemLocal] };
+          }
+          return l;
+        }));
+        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
       }
     } catch (err) {
       console.error('Erro ao adicionar item:', err);
@@ -557,8 +595,11 @@ function MainApp() {
 
   const deletarLista = async (id) => {
     if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
-      setListas(prev => (Array.isArray(prev) ? prev.filter(l => l.id !== id) : []));
-      if (listaParaCompararId === id) setListaParaCompararId(listas[0]?.id || null);
+      const novasListas = (Array.isArray(listas) ? listas.filter(l => l.id !== id) : []);
+      setListas(novasListas.length > 0 ? novasListas : LISTA_PADRAO);
+      if (listaParaCompararId === id) {
+        setListaParaCompararId(novasListas[0]?.id || 'lista_padrao');
+      }
       await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
     }
   };
@@ -758,7 +799,7 @@ function MainApp() {
     );
   }
 
-  const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0];
+  const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0] || LISTA_PADRAO[0];
   const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
   const baseMercados = (Array.isArray(mercadosReais) && mercadosReais.length > 0) ? mercadosReais : [
@@ -1141,7 +1182,7 @@ function MainApp() {
               ) : historicoCupons.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenum cupom bipado até o momento.</p>
+                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
                   <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta!</p>
                 </div>
               ) : (
