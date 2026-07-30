@@ -3,6 +3,23 @@ import * as cheerio from 'cheerio';
 
 let bancoDeDadosCupons = [];
 
+// Funções auxiliares para tratamento e limpeza de números da SEFAZ
+function extrairNumero(texto) {
+  if (!texto) return 0;
+  // Remove tudo que não for dígito, ponto ou vírgula
+  let limpo = texto.replace(/[^\d.,]/g, '').trim();
+  
+  if (!limpo) return 0;
+
+  // Trata formato brasileiro (ex: "1.250,50" -> "1250.50" ou "12,50" -> "12.50")
+  if (limpo.includes(',')) {
+    limpo = limpo.replace(/\./g, '').replace(',', '.');
+  }
+  
+  const num = parseFloat(limpo);
+  return isNaN(num) ? 0 : num;
+}
+
 export async function GET() {
   try {
     return NextResponse.json(bancoDeDadosCupons, { status: 200 });
@@ -19,12 +36,12 @@ export async function POST(request) {
     let produtosExtraidos = [];
     let nomeMercadoSefaz = body.mercado;
 
-    // 🕵️ SE HOUVER URL DO QR CODE, FAZ O SCRAPING REAL NA SEFAZ
     if (qrUrl && qrUrl.startsWith('http')) {
       try {
         const response = await fetch(qrUrl, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'pt-BR,pt;q=0.9'
           }
         });
 
@@ -32,38 +49,72 @@ export async function POST(request) {
           const html = await response.text();
           const $ = cheerio.load(html);
 
-          // 1. Tenta extrair o Nome do Estabelecimento da Nota
-          const nomeExtraido = $('.txtTopo').first().text().trim() || $('#comprovante #header .txtCenter').first().text().trim();
-          if (nomeExtraido) {
-            nomeMercadoSefaz = nomeExtraido.toUpperCase();
+          // 1. Extração do Nome do Mercado
+          const nomeExtraido = 
+            $('.txtTopo').first().text() || 
+            $('#comprovante #header .txtCenter').first().text() ||
+            $('.NFCE_aba_item_titulo').first().text() ||
+            $('#titFim').text();
+
+          if (nomeExtraido && nomeExtraido.trim()) {
+            nomeMercadoSefaz = nomeExtraido.trim().toUpperCase();
           }
 
-          // 2. Extrai TODOS os produtos da tabela do Cupom (Padrão SEFAZ NFC-e)
-          $('#tabResult tr, #tableItens tr, .txtItens').each((_, el) => {
-            const nome = $(el).find('.txtTit, .txtTit2, .txtItemName').text().trim();
-            const qtdTexto = $(el).find('.Rqtd, .Rqtt, .txtQtd').text().replace(/[^0-9,. ]/g, '').trim();
-            const precoTexto = $(el).find('.RvlUnit, .txtPreco, .txtValorUnit').text().replace(/[^0-9,.]/g, '').replace(',', '.').trim();
-            const valorTotalTexto = $(el).find('.valor, .txtValorTotal').text().replace(/[^0-9,.]/g, '').replace(',', '.').trim();
+          // 2. Extração Precisa dos Produtos e Preços
+          // Cobre seletores de quase todas as SEFAZs estaduais
+          $('#tabResult tr, #tableItens tr, .txtItens, tr[id^="Item"]').each((_, el) => {
+            const $linha = $(el);
+
+            // Nome do Produto
+            const nome = 
+              $linha.find('.txtTit, .txtTit2, .txtItemName, .txtItem, .NfceItemDesc').text().trim() ||
+              $linha.find('td:nth-child(1)').text().trim();
+
+            // Quantidade
+            const rawQtd = 
+              $linha.find('.Rqtd, .Rqtt, .txtQtd, .NfceItemQtd').text() ||
+              $linha.text().match(/Qtde?:?\s*([\d.,]+)/i)?.[1] || '';
+
+            // Preço Unitário
+            const rawPrecoUnit = 
+              $linha.find('.RvlUnit, .txtPreco, .txtValorUnit, .NfceItemVlUnit').text() ||
+              $linha.text().match(/Vl\.?\s*Unit\.?:?\s*([\d.,]+)/i)?.[1] || '';
+
+            // Valor Total do Item
+            const rawValorTotal = 
+              $linha.find('.valor, .txtValorTotal, .NfceItemVlTotal, .vDeduc').text() ||
+              $linha.find('td:last-child').text() || '';
 
             if (nome) {
-              const precoFinal = parseFloat(precoTexto || valorTotalTexto) || 0;
-              const qtdFinal = parseFloat(qtdTexto.replace(',', '.')) || 1;
+              let qtd = extrairNumero(rawQtd) || 1;
+              let precoUnitario = extrairNumero(rawPrecoUnit);
+              let valorTotal = extrairNumero(rawValorTotal);
 
-              produtosExtraidos.push({
-                nome: nome.toUpperCase(),
-                preco: precoFinal,
-                qtd: qtdFinal
-              });
+              // Fallback: Se o preço unitário veio 0 mas o valor total existe, calcula a divisão
+              if (precoUnitario === 0 && valorTotal > 0) {
+                precoUnitario = valorTotal / qtd;
+              } 
+              // Fallback opcional: Se veio unitário mas não veio total
+              else if (valorTotal === 0 && precoUnitario > 0) {
+                valorTotal = precoUnitario * qtd;
+              }
+
+              // Só adiciona se capturou um nome válido
+              if (nome.length > 1) {
+                produtosExtraidos.push({
+                  nome: nome.toUpperCase().replace(/\s+/g, ' '),
+                  preco: Number(precoUnitario.toFixed(2)),
+                  qtd: Number(qtd)
+                });
+              }
             }
           });
         }
       } catch (errScraping) {
-        console.error('Falha ao ler HTML da SEFAZ:', errScraping);
+        console.error('Erro na leitura da SEFAZ:', errScraping);
       }
     }
 
-    // Se o scraping não encontrar itens (ex: erro de bloqueio da SEFAZ), 
-    // grava o cupom com os produtos que conseguiu ler ou um aviso
     const novoCupom = {
       id: Date.now().toString(),
       mercado: nomeMercadoSefaz || 'MERCADO VIA CUPOM',
@@ -79,7 +130,7 @@ export async function POST(request) {
   } catch (error) {
     console.error('Erro no POST /api/cupons:', error);
     return NextResponse.json(
-      { error: 'Falha interna ao processar dados do cupom fiscal.' },
+      { error: 'Falha interna ao processar o cupom fiscal.' },
       { status: 500 }
     );
   }
