@@ -1,33 +1,34 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma'; // 👈 Ajuste o caminho se seu arquivo do Prisma estiver em outro lugar
 import * as cheerio from 'cheerio';
 
-let bancoDeDadosCupons = [];
-
-// Funções auxiliares para tratamento e limpeza de números da SEFAZ
+// Helper para tratar e converter os números da SEFAZ
 function extrairNumero(texto) {
   if (!texto) return 0;
-  // Remove tudo que não for dígito, ponto ou vírgula
   let limpo = texto.replace(/[^\d.,]/g, '').trim();
-  
   if (!limpo) return 0;
 
-  // Trata formato brasileiro (ex: "1.250,50" -> "1250.50" ou "12,50" -> "12.50")
   if (limpo.includes(',')) {
     limpo = limpo.replace(/\./g, '').replace(',', '.');
   }
-  
   const num = parseFloat(limpo);
   return isNaN(num) ? 0 : num;
 }
 
+// GET: Busca os cupons gravados no banco PostgreSQL
 export async function GET() {
   try {
-    return NextResponse.json(bancoDeDadosCupons, { status: 200 });
+    const cupons = await prisma.cupom.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+    return NextResponse.json(cupons, { status: 200 });
   } catch (error) {
-    return NextResponse.json({ error: 'Erro ao buscar cupons.' }, { status: 500 });
+    console.error('Erro ao buscar cupons no Postgres:', error);
+    return NextResponse.json({ error: 'Erro ao buscar cupons do banco de dados.' }, { status: 500 });
   }
 }
 
+// POST: Realiza o scraping e SALVA NO POSTGRESQL
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -36,6 +37,7 @@ export async function POST(request) {
     let produtosExtraidos = [];
     let nomeMercadoSefaz = body.mercado;
 
+    // 1. Scraping do HTML da SEFAZ
     if (qrUrl && qrUrl.startsWith('http')) {
       try {
         const response = await fetch(qrUrl, {
@@ -49,7 +51,6 @@ export async function POST(request) {
           const html = await response.text();
           const $ = cheerio.load(html);
 
-          // 1. Extração do Nome do Mercado
           const nomeExtraido = 
             $('.txtTopo').first().text() || 
             $('#comprovante #header .txtCenter').first().text() ||
@@ -60,27 +61,21 @@ export async function POST(request) {
             nomeMercadoSefaz = nomeExtraido.trim().toUpperCase();
           }
 
-          // 2. Extração Precisa dos Produtos e Preços
-          // Cobre seletores de quase todas as SEFAZs estaduais
           $('#tabResult tr, #tableItens tr, .txtItens, tr[id^="Item"]').each((_, el) => {
             const $linha = $(el);
 
-            // Nome do Produto
             const nome = 
               $linha.find('.txtTit, .txtTit2, .txtItemName, .txtItem, .NfceItemDesc').text().trim() ||
               $linha.find('td:nth-child(1)').text().trim();
 
-            // Quantidade
             const rawQtd = 
               $linha.find('.Rqtd, .Rqtt, .txtQtd, .NfceItemQtd').text() ||
               $linha.text().match(/Qtde?:?\s*([\d.,]+)/i)?.[1] || '';
 
-            // Preço Unitário
             const rawPrecoUnit = 
               $linha.find('.RvlUnit, .txtPreco, .txtValorUnit, .NfceItemVlUnit').text() ||
               $linha.text().match(/Vl\.?\s*Unit\.?:?\s*([\d.,]+)/i)?.[1] || '';
 
-            // Valor Total do Item
             const rawValorTotal = 
               $linha.find('.valor, .txtValorTotal, .NfceItemVlTotal, .vDeduc').text() ||
               $linha.find('td:last-child').text() || '';
@@ -90,16 +85,12 @@ export async function POST(request) {
               let precoUnitario = extrairNumero(rawPrecoUnit);
               let valorTotal = extrairNumero(rawValorTotal);
 
-              // Fallback: Se o preço unitário veio 0 mas o valor total existe, calcula a divisão
               if (precoUnitario === 0 && valorTotal > 0) {
                 precoUnitario = valorTotal / qtd;
-              } 
-              // Fallback opcional: Se veio unitário mas não veio total
-              else if (valorTotal === 0 && precoUnitario > 0) {
+              } else if (valorTotal === 0 && precoUnitario > 0) {
                 valorTotal = precoUnitario * qtd;
               }
 
-              // Só adiciona se capturou um nome válido
               if (nome.length > 1) {
                 produtosExtraidos.push({
                   nome: nome.toUpperCase().replace(/\s+/g, ' '),
@@ -115,27 +106,28 @@ export async function POST(request) {
       }
     }
 
-    const novoCupom = {
-      id: Date.now().toString(),
-      mercado: nomeMercadoSefaz || 'MERCADO VIA CUPOM',
-      url: qrUrl || '',
-      data: body.data || new Date().toLocaleDateString('pt-BR'),
-      hora: body.hora || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      itens: produtosExtraidos
-    };
-
-    bancoDeDadosCupons.unshift(novoCupom);
+    // 2. GRAVAÇÃO DIRETA NO POSTGRESQL VIA PRISMA
+    const novoCupom = await prisma.cupom.create({
+      data: {
+        mercado: nomeMercadoSefaz || 'MERCADO VIA CUPOM',
+        url: qrUrl || '',
+        data: body.data || new Date().toLocaleDateString('pt-BR'),
+        hora: body.hora || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        itens: produtosExtraidos // No PostgreSQL (Prisma), o campo `itens` pode ser do tipo Json
+      }
+    });
 
     return NextResponse.json(novoCupom, { status: 201 });
   } catch (error) {
     console.error('Erro no POST /api/cupons:', error);
     return NextResponse.json(
-      { error: 'Falha interna ao processar o cupom fiscal.' },
+      { error: 'Falha interna ao gravar o cupom no PostgreSQL.' },
       { status: 500 }
     );
   }
 }
 
+// DELETE: Deleta o cupom no PostgreSQL
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -143,9 +135,13 @@ export async function DELETE(request) {
 
     if (!id) return NextResponse.json({ error: 'ID não informado.' }, { status: 400 });
 
-    bancoDeDadosCupons = bancoDeDadosCupons.filter(c => c.id !== id);
-    return NextResponse.json({ message: 'Cupom removido.' }, { status: 200 });
+    await prisma.cupom.delete({
+      where: { id: String(id) }
+    });
+
+    return NextResponse.json({ message: 'Cupom removido do PostgreSQL.' }, { status: 200 });
   } catch (error) {
-    return NextResponse.json({ error: 'Erro ao excluir cupom.' }, { status: 500 });
+    console.error('Erro no DELETE /api/cupons:', error);
+    return NextResponse.json({ error: 'Erro ao excluir cupom do banco.' }, { status: 500 });
   }
 }

@@ -1,109 +1,236 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma'; // Ajuste se seu client Prisma estiver em outra pasta
+import * as cheerio from 'cheerio';
+
+function extrairNumero(texto) {
+  if (!texto) return 0;
+  let limpo = texto.replace(/[^\d.,]/g, '').trim();
+  if (!limpo) return 0;
+
+  if (limpo.includes(',')) {
+    limpo = limpo.replace(/\./g, '').replace(',', '.');
+  }
+  const num = parseFloat(limpo);
+  return isNaN(num) ? 0 : num;
 }
 
-generator client {
-  provider = "prisma-client-js"
+// GET: Busca todos os cupons relacionando o mercado e os itens com nome do produto
+export async function GET() {
+  try {
+    const cupons = await prisma.cupomFiscal.findMany({
+      include: {
+        mercado: true,
+        itens: {
+          include: {
+            produto: true
+          }
+        }
+      },
+      orderBy: {
+        criadoEm: 'desc'
+      }
+    });
+
+    // Formata o retorno para o padrão exigido pelo seu React no front-end
+    const cuponsFormatados = cupons.map(c => ({
+      id: c.id,
+      mercado: c.mercado?.nome || 'MERCADO DESCONHECIDO',
+      url: c.chaveAcesso,
+      data: c.dataEmissao ? new Date(c.dataEmissao).toLocaleDateString('pt-BR') : '',
+      hora: c.dataEmissao ? new Date(c.dataEmissao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
+      valorTotal: Number(c.valorTotal),
+      itens: c.itens.map(item => ({
+        id: item.id,
+        nome: item.produto?.nome || 'PRODUTO',
+        preco: Number(item.precoUnitario),
+        qtd: Number(item.quantidade)
+      }))
+    }));
+
+    return NextResponse.json(cuponsFormatados, { status: 200 });
+  } catch (error) {
+    console.error('Erro no GET /api/cupons:', error);
+    return NextResponse.json({ error: 'Erro ao listar cupons do banco de dados.' }, { status: 500 });
+  }
 }
 
-model Usuario {
-  id        String        @id @default(uuid())
-  nome      String
-  cpf       String        @unique
-  usuario   String        @unique
-  senha     String
-  createdAt DateTime      @default(now())
-  cupons    CupomFiscal[]
+// POST: Scraping da SEFAZ + Transação Relacional no PostgreSQL
+export async function POST(request) {
+  try {
+    const body = await request.json();
+    const qrUrl = body.url;
 
-  @@map("Usuario")
+    let produtosExtraidos = [];
+    let nomeMercadoSefaz = body.mercado || 'SUPERMERCADO';
+
+    // 1. Scraping da SEFAZ
+    if (qrUrl && qrUrl.startsWith('http')) {
+      try {
+        const response = await fetch(qrUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'pt-BR,pt;q=0.9'
+          }
+        });
+
+        if (response.ok) {
+          const html = await response.text();
+          const $ = cheerio.load(html);
+
+          const nomeExtraido = 
+            $('.txtTopo').first().text() || 
+            $('#comprovante #header .txtCenter').first().text() ||
+            $('.NFCE_aba_item_titulo').first().text() ||
+            $('#titFim').text();
+
+          if (nomeExtraido && nomeExtraido.trim()) {
+            nomeMercadoSefaz = nomeExtraido.trim().toUpperCase();
+          }
+
+          $('#tabResult tr, #tableItens tr, .txtItens, tr[id^="Item"]').each((_, el) => {
+            const $linha = $(el);
+
+            const nome = 
+              $linha.find('.txtTit, .txtTit2, .txtItemName, .txtItem, .NfceItemDesc').text().trim() ||
+              $linha.find('td:nth-child(1)').text().trim();
+
+            const rawQtd = 
+              $linha.find('.Rqtd, .Rqtt, .txtQtd, .NfceItemQtd').text() ||
+              $linha.text().match(/Qtde?:?\s*([\d.,]+)/i)?.[1] || '';
+
+            const rawPrecoUnit = 
+              $linha.find('.RvlUnit, .txtPreco, .txtValorUnit, .NfceItemVlUnit').text() ||
+              $linha.text().match(/Vl\.?\s*Unit\.?:?\s*([\d.,]+)/i)?.[1] || '';
+
+            const rawValorTotal = 
+              $linha.find('.valor, .txtValorTotal, .NfceItemVlTotal, .vDeduc').text() ||
+              $linha.find('td:last-child').text() || '';
+
+            if (nome) {
+              let qtd = extrairNumero(rawQtd) || 1;
+              let precoUnitario = extrairNumero(rawPrecoUnit);
+              let valorTotal = extrairNumero(rawValorTotal);
+
+              if (precoUnitario === 0 && valorTotal > 0) {
+                precoUnitario = valorTotal / qtd;
+              } else if (valorTotal === 0 && precoUnitario > 0) {
+                valorTotal = precoUnitario * qtd;
+              }
+
+              if (nome.length > 1) {
+                produtosExtraidos.push({
+                  nome: nome.toUpperCase().replace(/\s+/g, ' '),
+                  preco: Number(precoUnitario.toFixed(2)),
+                  qtd: Number(qtd)
+                });
+              }
+            }
+          });
+        }
+      } catch (errScraping) {
+        console.error('Erro na leitura da SEFAZ:', errScraping);
+      }
+    }
+
+    // Gerador de chave única (ou usa a URL/chave capturada)
+    const chaveAcessoFinal = qrUrl || `CHAVE_${Date.now()}`;
+
+    // 2. Transação no PostgreSQL usando seu Schema do Prisma
+    const resultado = await prisma.$transaction(async (tx) => {
+      // A. Busca ou cria o Mercado
+      let mercado = await tx.mercado.findFirst({
+        where: { nome: nomeMercadoSefaz }
+      });
+
+      if (!mercado) {
+        mercado = await tx.mercado.create({
+          data: { nome: nomeMercadoSefaz }
+        });
+      }
+
+      // Calcula valor total do cupom
+      const valorTotalCupom = produtosExtraidos.reduce((acc, p) => acc + (p.preco * p.qtd), 0);
+
+      // B. Cria o Cupom Fiscal
+      const novoCupom = await tx.cupomFiscal.create({
+        data: {
+          chaveAcesso: chaveAcessoFinal,
+          mercadoId: mercado.id,
+          usuarioId: body.usuarioId || null, // Se você tiver o id do usuário logado
+          dataEmissao: new Date(),
+          valorTotal: valorTotalCupom > 0 ? valorTotalCupom : 0
+        }
+      });
+
+      // C. Vincula cada Produto e cada ItemCupom
+      for (const item of produtosExtraidos) {
+        // Encontra ou cria o Produto
+        let produto = await tx.produto.findFirst({
+          where: { nome: item.nome }
+        });
+
+        if (!produto) {
+          produto = await tx.produto.create({
+            data: { nome: item.nome }
+          });
+        }
+
+        // Cria o registro na tabela de relacionamento itens_cupom
+        await tx.itemCupom.create({
+          data: {
+            cupomId: novoCupom.id,
+            produtoId: produto.id,
+            precoUnitario: item.preco,
+            quantidade: item.qtd
+          }
+        });
+
+        // Adiciona ao Histórico de Preços Público (Crowdsourcing)
+        await tx.historicoPrecoPublico.create({
+          data: {
+            produtoId: produto.id,
+            mercadoId: mercado.id,
+            preco: item.preco,
+            origem: 'NFC-e'
+          }
+        });
+      }
+
+      return {
+        id: novoCupom.id,
+        mercado: mercado.nome,
+        url: novoCupom.chaveAcesso,
+        data: new Date(novoCupom.dataEmissao).toLocaleDateString('pt-BR'),
+        hora: new Date(novoCupom.dataEmissao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        itens: produtosExtraidos
+      };
+    });
+
+    return NextResponse.json(resultado, { status: 201 });
+  } catch (error) {
+    console.error('Erro no POST /api/cupons:', error);
+    return NextResponse.json(
+      { error: 'Erro ao gravar o cupom no PostgreSQL relacional.' },
+      { status: 500 }
+    );
+  }
 }
 
-model Lista {
-  id        String   @id @default(uuid())
-  nome      String
-  usuarioId String?
-  createdAt DateTime @default(now())
-  itens     Item[]
+// DELETE: Remove o cupom e os itens (com deleção em cascata)
+export async function DELETE(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
 
-  @@map("Lista")
-}
+    if (!id) return NextResponse.json({ error: 'ID não informado.' }, { status: 400 });
 
-model Item {
-  id            String   @id @default(uuid())
-  listaId       String
-  produtoNome   String
-  qtd           Int      @default(1)
-  un            String   @default("UN")
-  precoEstimado Float?   @default(0.0)
-  marca         String?
-  marcado       Boolean  @default(false)
-  lista         Lista    @relation(fields: [listaId], references: [id], onDelete: Cascade)
+    await prisma.cupomFiscal.delete({
+      where: { id: Number(id) }
+    });
 
-  @@map("ItemLista")
-}
-
-// ----------------------------------------------------
-// NOVAS TABELAS CONVERTIDAS PARA O PRISMA (CROWDSOURCING & SEFAZ)
-// ----------------------------------------------------
-
-model Mercado {
-  id              Int                     @id @default(autoincrement())
-  nome            String
-  cupons          CupomFiscal[]
-  historicoPrecos HistoricoPrecoPublico[]
-
-  @@map("mercados")
-}
-
-model Produto {
-  id              Int                     @id @default(autoincrement())
-  nome            String
-  itensCupom      ItemCupom[]
-  historicoPrecos HistoricoPrecoPublico[]
-
-  @@map("produtos")
-}
-
-model CupomFiscal {
-  id                 Int         @id @default(autoincrement())
-  chaveAcesso        String      @unique @map("chave_acesso")
-  usuarioId          String?     @map("usuario_id")
-  mercadoId          Int?        @map("mercado_id")
-  dataEmissao        DateTime    @map("data_emissao")
-  valorTotal         Decimal     @map("valor_total") @db.Decimal(10, 2)
-  criadoEm           DateTime    @default(now()) @map("criado_em")
-  
-  usuario            Usuario?    @relation(fields: [usuarioId], references: [id])
-  mercado            Mercado?    @relation(fields: [mercadoId], references: [id])
-  itens              ItemCupom[]
-
-  @@map("cupons_fiscais")
-}
-
-model ItemCupom {
-  id            Int         @id @default(autoincrement())
-  cupomId       Int         @map("cupom_id")
-  produtoId     Int         @map("produto_id")
-  precoUnitario Decimal     @map("preco_unitario") @db.Decimal(10, 2)
-  quantidade    Decimal     @db.Decimal(10, 3)
-  
-  cupom         CupomFiscal @relation(fields: [cupomId], references: [id], onDelete: Cascade)
-  produto       Produto     @relation(fields: [produtoId], references: [id])
-
-  @@map("itens_cupom")
-}
-
-model HistoricoPrecoPublico {
-  id           Int      @id @default(autoincrement())
-  produtoId    Int      @map("produto_id")
-  mercadoId    Int      @map("mercado_id")
-  preco        Decimal  @db.Decimal(10, 2)
-  atualizadoEm DateTime @default(now()) @map("atualizado_em")
-  origem       String   @default("NFC-e")
-
-  produto      Produto  @relation(fields: [produtoId], references: [id])
-  mercado      Mercado  @relation(fields: [mercadoId], references: [id])
-
-  @@map("historico_precos_publico")
+    return NextResponse.json({ message: 'Cupom removido do PostgreSQL.' }, { status: 200 });
+  } catch (error) {
+    console.error('Erro no DELETE /api/cupons:', error);
+    return NextResponse.json({ error: 'Erro ao excluir cupom do banco.' }, { status: 500 });
+  }
 }
