@@ -18,7 +18,7 @@ const LISTA_PADRAO = [
 ];
 
 // Helper para exibição segura de textos/objetos
-const renderTexto = (val, fallback = '') => {
+const renderTexto = (val: any, fallback = '') => {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') {
     return val.nome || val.name || val.title || val.id || JSON.stringify(val);
@@ -27,7 +27,7 @@ const renderTexto = (val, fallback = '') => {
 };
 
 // Helper para extrair itens do cupom
-const obterItensCupom = (cupom) => {
+const obterItensCupom = (cupom: any) => {
   if (!cupom) return [];
 
   let objetoCupom = cupom;
@@ -62,7 +62,7 @@ const obterItensCupom = (cupom) => {
 };
 
 // Dicionário de abreviações de supermercado
-const DICIONARIO_ABREVIACOES = {
+const DICIONARIO_ABREVIACOES: Record<string, string> = {
   'int': 'integral', 'integ': 'integral', 'desm': 'desnatado', 'semid': 'semidesnatado',
   'lt': 'leite', 'lte': 'leite', 'tp': 'tetrapack', 'cx': 'caixa', 'pote': 'pote',
   'pdr': 'padrao', 'trad': 'tradicional', 'ext': 'extra', 'fbr': 'forte', 'c/': 'com',
@@ -72,7 +72,7 @@ const DICIONARIO_ABREVIACOES = {
   'soj': 'soja', 'farn': 'farinha', 'trg': 'trigo'
 };
 
-const normalizarETraduzirTexto = (texto) => {
+const normalizarETraduzirTexto = (texto: any) => {
   if (!texto) return [];
   const palavrasLimpas = String(texto)
     .normalize("NFD")
@@ -85,14 +85,14 @@ const normalizarETraduzirTexto = (texto) => {
   return palavrasLimpas.map(palavra => DICIONARIO_ABREVIACOES[palavra] || palavra);
 };
 
-const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
+const buscarPrecoNoCupom = (itemNomeLista: string, cupomItens: any) => {
   const listaProdutos = Array.isArray(cupomItens) ? cupomItens : [];
   if (listaProdutos.length === 0 || !itemNomeLista) return null;
 
   const palavrasBusca = normalizarETraduzirTexto(itemNomeLista);
   if (palavrasBusca.length === 0) return null;
 
-  let melhorMatch = null;
+  let melhorMatch: any = null;
   let maiorPontuacao = 0;
 
   for (const itemCupom of listaProdutos) {
@@ -101,7 +101,7 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
     
     let correspondencias = 0;
     for (const palavra of palavrasBusca) {
-      if (palavrasCupom.some(p => p.includes(palavra) || palavra.includes(p))) {
+      if (palavrasCupom.some((p: string) => p.includes(palavra) || palavra.includes(p))) {
         correspondencias++;
       }
     }
@@ -118,17 +118,17 @@ const buscarPrecoNoCupom = (itemNomeLista, cupomItens) => {
   return preco ? Number(preco) : null;
 };
 
-class ErrorBoundary extends React.Component {
-  constructor(props) {
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; errorInfo: string }> {
+  constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false, errorInfo: '' };
   }
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(error: any) {
     return { hasError: true, errorInfo: error?.toString() || 'Erro desconhecido' };
   }
 
-  componentDidCatch(error, errorInfo) {
+  componentDidCatch(error: any, errorInfo: any) {
     console.error("Erro capturado no React:", error, errorInfo);
   }
 
@@ -161,6 +161,7 @@ function MainApp() {
   const [isLogged, setIsLogged] = useState(false);
   const [loadingListas, setLoadingListas] = useState(false);
   const [loadingCupons, setLoadingCupons] = useState(false);
+  const [isSalvandoCupom, setIsSalvandoCupom] = useState(false);
   const [activeTab, setActiveTab] = useState('listas');
 
   const [authMode, setAuthMode] = useState('login');
@@ -174,24 +175,24 @@ function MainApp() {
   const [aceitouLgpd, setAceitouLgpd] = useState(false);
   const [showTermosModal, setShowTermosModal] = useState(false);
 
-  const [listas, setListas] = useState(LISTA_PADRAO);
-  const [listasAbertas, setListasAbertas] = useState({});
+  const [listas, setListas] = useState<any[]>(LISTA_PADRAO);
+  const [listasAbertas, setListasAbertas] = useState<Record<string, boolean>>({});
   const [novaListaNome, setNovaListaNome] = useState('');
-  const [inputsItens, setInputsItens] = useState({});
+  const [inputsItens, setInputsItens] = useState<Record<string, { nome: string; qtd: number }>>({});
 
   const [listaParaCompararId, setListaParaCompararId] = useState('lista_padrao');
-  const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState(null);
+  const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState<any>(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
-  const [mercadosReais, setMercadosReais] = useState([]);
+  const [mercadosReais, setMercadosReais] = useState<any[]>([]);
   const [usandoGeo, setUsandoGeo] = useState(false);
 
-  const [cuponsAbertos, setCuponsAbertos] = useState({});
+  const [cuponsAbertos, setCuponsAbertos] = useState<Record<string, boolean>>({});
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
-  const [historicoCupons, setHistoricoCupons] = useState([]);
+  const [historicoCupons, setHistoricoCupons] = useState<any[]>([]);
   const [cameraError, setCameraError] = useState('');
-  const qrScannerRef = useRef(null);
+  const qrScannerRef = useRef<Html5Qrcode | null>(null);
 
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
@@ -231,7 +232,7 @@ function MainApp() {
     }
   };
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!usuario.trim()) return alert('Digite seu usuário');
     setIsLogged(true);
@@ -240,7 +241,7 @@ function MainApp() {
     await carregarCuponsDoBanco();
   };
 
-  const handleCadastro = async (e) => {
+  const handleCadastro = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nomeCompleto.trim() || !emailCadastro.trim() || !usuarioCadastro.trim() || !senhaCadastro.trim()) {
       return alert('Por favor, preencha todos os campos do cadastro.');
@@ -283,13 +284,13 @@ function MainApp() {
         (decodedText) => {
           setQrUrlInput(decodedText);
           pararScanner();
-          alert(`✅ QR Code lido com sucesso!\n\nDefina o nome do estabelecimento abaixo e clique em Salvar.`);
+          alert(`✅ QR Code lido com sucesso!\n\nClique em "Salvar Cupom" abaixo para processar.`);
         },
         () => {}
       );
     } catch (err) {
       console.error('Erro ao iniciar câmera:', err);
-      setCameraError('Não foi possível abrir a câmera. Permita o acesso ou digite os dados abaixo.');
+      setCameraError('Não foi possível abrir a câmera. Permita o acesso ou insira o link/nome.');
     }
   };
 
@@ -345,7 +346,7 @@ function MainApp() {
           const data = await response.json();
 
           if (data.elements && data.elements.length > 0) {
-            const mercadosEncontrados = data.elements.map((el, index) => ({
+            const mercadosEncontrados = data.elements.map((el: any, index: number) => ({
               id: el.id || index,
               nome: (el.tags?.name || `SUPERMERCADO ${index + 1}`).toUpperCase(),
               distancia: (Math.random() * 2 + 0.5).toFixed(1) + ' km',
@@ -370,11 +371,26 @@ function MainApp() {
     );
   };
 
-  // 🔥 SALVAMENTO RÍGIDO NO SERVIDOR (SEM FALLBACK LOCAL)
-  const processarCupomQrCode = async (e) => {
+  // 🔥 PROCESSAMENTO COM BAIXA DIRETA PELO NAVEGADOR DO CELULAR (ANTI-BLOQUEIO SEFAZ)
+  const processarCupomQrCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
       return alert('Preencha o nome do estabelecimento ou escaneie o QR Code!');
+    }
+
+    setIsSalvandoCupom(true);
+    let htmlBaixado = '';
+
+    // 1. Tenta fazer o download do HTML pelo próprio celular se houver URL do QR Code
+    if (qrUrlInput.trim() && qrUrlInput.startsWith('http')) {
+      try {
+        const responseSefaz = await fetch(qrUrlInput.trim());
+        if (responseSefaz.ok) {
+          htmlBaixado = await responseSefaz.text();
+        }
+      } catch (errHtml) {
+        console.log('Download direto pelo browser falhou (CORS/SSL). O servidor tentará fazer o scraping via fallback.');
+      }
     }
 
     const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
@@ -386,6 +402,7 @@ function MainApp() {
         body: JSON.stringify({
           mercado: nomeEstabelecimento,
           url: qrUrlInput,
+          html: htmlBaixado, // Envia o HTML pronto capturado no celular
           data: new Date().toLocaleDateString('pt-BR'),
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         })
@@ -397,7 +414,7 @@ function MainApp() {
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
-        alert('✅ Cupom salvo no banco de dados com sucesso!');
+        alert('✅ Cupom salvo no Neon DB com sucesso!');
       } else {
         const errorData = await res.json().catch(() => null);
         const mensagemErro = errorData?.error || errorData?.message || `Status HTTP ${res.status}`;
@@ -406,10 +423,12 @@ function MainApp() {
     } catch (err) {
       console.error('Erro de conexão ao salvar cupom:', err);
       alert('❌ Falha de conexão. O servidor está offline ou a rota /api/cupons está inacessível.');
+    } finally {
+      setIsSalvandoCupom(false);
     }
   };
 
-  const excluirCupom = async (id) => {
+  const excluirCupom = async (id: any) => {
     if (confirm('Deseja excluir este cupom do banco de dados?')) {
       try {
         const res = await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
@@ -424,7 +443,7 @@ function MainApp() {
     }
   };
 
-  const obterMarcaParaItem = (nomeItem) => {
+  const obterMarcaParaItem = (nomeItem: string) => {
     const itemUpper = (nomeItem || '').toUpperCase();
     if (itemUpper.includes('ARROZ')) return 'CAMIL';
     if (itemUpper.includes('FEIJÃO') || itemUpper.includes('FEIJAO')) return 'KICALDO';
@@ -435,7 +454,7 @@ function MainApp() {
     return 'MARCA SEFAZ';
   };
 
-  const criarNovaLista = async (e) => {
+  const criarNovaLista = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!novaListaNome.trim()) return;
 
@@ -459,7 +478,7 @@ function MainApp() {
     }
   };
 
-  const handleInputItemChange = (listaId, campo, valor) => {
+  const handleInputItemChange = (listaId: string, campo: string, valor: any) => {
     setInputsItens(prev => ({
       ...prev,
       [listaId]: {
@@ -469,7 +488,7 @@ function MainApp() {
     }));
   };
 
-  const adicionarItem = async (e, listaId) => {
+  const adicionarItem = async (e: React.FormEvent, listaId: string) => {
     if (e) e.preventDefault();
     const input = inputsItens[listaId];
     if (!input || !input.nome || !input.nome.trim()) return;
@@ -510,7 +529,7 @@ function MainApp() {
     }
   };
 
-  const alterarQuantidade = async (listaId, itemId, delta) => {
+  const alterarQuantidade = async (listaId: string, itemId: string, delta: number) => {
     let novaQtd = 1;
 
     setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
@@ -536,12 +555,12 @@ function MainApp() {
     });
   };
 
-  const removerItem = async (listaId, itemId) => {
+  const removerItem = async (listaId: string, itemId: string) => {
     setListas(prev => (Array.isArray(prev) ? prev : []).map(l => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter(i => i.id !== itemId) } : l));
     await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
   };
 
-  const toggleCheck = async (listaId, itemId) => {
+  const toggleCheck = async (listaId: string, itemId: string) => {
     let novoMarcado = false;
     setListas(prev => (Array.isArray(prev) ? prev : []).map(l => {
       if (l.id === listaId) {
@@ -566,7 +585,7 @@ function MainApp() {
     });
   };
 
-  const deletarLista = async (id) => {
+  const deletarLista = async (id: string) => {
     if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
       const novasListas = (Array.isArray(listas) ? listas.filter(l => l.id !== id) : []);
       setListas(novasListas.length > 0 ? novasListas : LISTA_PADRAO);
@@ -798,8 +817,8 @@ function MainApp() {
     let totalCalculado = 0;
 
     const itensDetalhado = itensDaListaAtiva.map(item => {
-      let precoUn;
-      let origemPreco;
+      let precoUn: number;
+      let origemPreco: string;
 
       if (mercado.isCupom) {
         const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
@@ -948,7 +967,7 @@ function MainApp() {
                         </form>
 
                         <div className="divide-y">
-                          {itensLista.map(item => (
+                          {itensLista.map((item: any) => (
                             <div key={item.id} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 gap-2">
                               <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                 <input
@@ -1079,7 +1098,7 @@ function MainApp() {
                             Detalhamento de Itens ({renderTexto(mercado.nome)}):
                           </h5>
                           <div className="divide-y divide-gray-200">
-                            {mercado.itensDetalhado.map(item => {
+                            {mercado.itensDetalhado.map((item: any) => {
                               const marcaExibicao = item.marca || obterMarcaParaItem(item.nome);
 
                               return (
@@ -1155,7 +1174,7 @@ function MainApp() {
               ) : historicoCupons.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
+                  <p className="text-xs font-bold text-gray-700">Nenum cupom bipado até o momento.</p>
                   <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta!</p>
                 </div>
               ) : (
@@ -1213,7 +1232,7 @@ function MainApp() {
                               </p>
                             ) : (
                               <div className="divide-y divide-purple-100 bg-white rounded-xl border border-purple-200 overflow-hidden">
-                                {itensDoCupom.map((prod, pIdx) => {
+                                {itensDoCupom.map((prod: any, pIdx: number) => {
                                   const nomeProduto = prod.nome || prod.descricao || prod.product || prod.title || prod.dsc || 'SEM NOME';
                                   const precoProduto = prod.preco || prod.precoUnitario || prod.val || prod.valor || 0;
                                   const qtdProduto = prod.qtd || prod.quantidade || prod.qnt || 1;
@@ -1323,15 +1342,17 @@ function MainApp() {
                 <button
                   type="button"
                   onClick={fecharModalQr}
+                  disabled={isSalvandoCupom}
                   className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs hover:bg-gray-200"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow"
+                  disabled={isSalvandoCupom}
+                  className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow flex items-center justify-center gap-1"
                 >
-                  Salvar Cupom
+                  {isSalvandoCupom ? 'Processando...' : 'Salvar Cupom'}
                 </button>
               </div>
             </form>
