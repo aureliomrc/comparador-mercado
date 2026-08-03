@@ -27,7 +27,7 @@ const renderTexto = (val, fallback = '') => {
 };
 
 // Helper para extrair itens do cupom
-const obterItensCupom = (cupom: any) => {
+const obterItensCupom = (cupom) => {
   if (!cupom) return [];
 
   let objetoCupom = cupom;
@@ -72,7 +72,7 @@ const DICIONARIO_ABREVIACOES: Record<string, string> = {
   'soj': 'soja', 'farn': 'farinha', 'trg': 'trigo'
 };
 
-const normalizarETraduzirTexto = (texto: any) => {
+const normalizarETraduzirTexto = (texto) => {
   if (!texto) return [];
   const palavrasLimpas = String(texto)
     .normalize("NFD")
