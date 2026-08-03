@@ -2,17 +2,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// 🛒 LISTA PADRÃO INICIAL (Usada para clonar no primeiro acesso do usuário)
+// 🛒 LISTA PADRÃO INICIAL (Enviada sem IDs manuais para o Prisma gerar no autoincrement)
 const LISTA_PADRAO = [
   {
-    id: 'lista_padrao',
     nome: 'COMPRAS DO MÊS',
     itens: [
-      { id: '1', nome: 'ARROZ 5KG', qtd: 1, marcado: false, precoEstimado: 25.90, marca: 'CAMIL' },
-      { id: '2', nome: 'FEIJÃO CARIOCA 1KG', qtd: 2, marcado: false, precoEstimado: 7.50, marca: 'KICALDO' },
-      { id: '3', nome: 'LEITE INTEGRAL 1L', qtd: 12, marcado: false, precoEstimado: 4.80, marca: 'NINHO' },
-      { id: '4', nome: 'CAFÉ MOÍDO 500G', qtd: 2, marcado: false, precoEstimado: 16.90, marca: 'PILÃO' },
-      { id: '5', nome: 'AÇÚCAR REFINADO 1KG', qtd: 3, marcado: false, precoEstimado: 4.20, marca: 'UNIÃO' }
+      { nome: 'ARROZ 5KG', qtd: 1, marcado: false, precoEstimado: 25.90, marca: 'CAMIL' },
+      { nome: 'FEIJÃO CARIOCA 1KG', qtd: 2, marcado: false, precoEstimado: 7.50, marca: 'KICALDO' },
+      { nome: 'LEITE INTEGRAL 1L', qtd: 12, marcado: false, precoEstimado: 4.80, marca: 'NINHO' },
+      { nome: 'CAFÉ MOÍDO 500G', qtd: 2, marcado: false, precoEstimado: 16.90, marca: 'PILÃO' },
+      { nome: 'AÇÚCAR REFINADO 1KG', qtd: 3, marcado: false, precoEstimado: 4.20, marca: 'UNIÃO' }
     ]
   }
 ];
@@ -180,7 +179,7 @@ function MainApp() {
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState<Record<string, { nome: string; qtd: number }>>({});
 
-  const [listaParaCompararId, setListaParaCompararId] = useState('');
+  const [listaParaCompararId, setListaParaCompararId] = useState<any>('');
   const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState<any>(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState<any[]>([]);
@@ -216,7 +215,7 @@ function MainApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           usuario: nomeUsuario,
-          nome: 'COMPRAS DO MÊS',
+          nome: LISTA_PADRAO[0].nome,
           itens: LISTA_PADRAO[0].itens
         })
       });
@@ -225,6 +224,10 @@ function MainApp() {
         const novaLista = await res.json();
         setListas([novaLista]);
         setListaParaCompararId(novaLista.id);
+      } else {
+        const errJson = await res.json().catch(() => null);
+        console.error('Erro na resposta do servidor:', errJson);
+        alert(`Não foi possível criar a lista padrão: ${errJson?.error || 'Erro interno'}`);
       }
     } catch (err) {
       console.error('Erro ao clonar lista padrão:', err);
@@ -242,7 +245,6 @@ function MainApp() {
           setListas(dados);
           setListaParaCompararId(dados[0].id);
         } else {
-          // Se o usuário não tem nenhuma lista, clona a padrão para ele no banco
           await inicializarListaPadraoParaUsuario(usuario);
         }
       }
@@ -494,14 +496,15 @@ function MainApp() {
         setListaParaCompararId(novaListaCriada.id);
         setNovaListaNome('');
       } else {
-        alert('Ocorreu um erro ao salvar a lista no banco.');
+        const errData = await res.json().catch(() => null);
+        alert(`Ocorreu um erro ao salvar a lista no banco: ${errData?.error || 'Verifique a rota'}`);
       }
     } catch (err) {
       console.error('Erro ao criar lista:', err);
     }
   };
 
-  const handleInputItemChange = (listaId: string, campo: string, valor: any) => {
+  const handleInputItemChange = (listaId: any, campo: string, valor: any) => {
     setInputsItens(prev => ({
       ...prev,
       [listaId]: {
@@ -511,7 +514,7 @@ function MainApp() {
     }));
   };
 
-  const adicionarItem = async (e: React.FormEvent, listaId: string) => {
+  const adicionarItem = async (e: React.FormEvent, listaId: any) => {
     if (e) e.preventDefault();
     const input = inputsItens[listaId];
     if (!input || !input.nome || !input.nome.trim()) return;
@@ -553,7 +556,7 @@ function MainApp() {
     }
   };
 
-  const alterarQuantidade = async (listaId: string, itemId: string, delta: number) => {
+  const alterarQuantidade = async (listaId: any, itemId: any, delta: number) => {
     let novaQtd = 1;
 
     setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map((l: any) => {
@@ -579,12 +582,12 @@ function MainApp() {
     });
   };
 
-  const removerItem = async (listaId: string, itemId: string) => {
+  const removerItem = async (listaId: any, itemId: any) => {
     setListas(prev => (Array.isArray(prev) ? prev : []).map((l: any) => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter((i: any) => i.id !== itemId) } : l));
     await fetch(`/api/listas?itemId=${itemId}&usuario=${encodeURIComponent(usuario)}`, { method: 'DELETE' });
   };
 
-  const toggleCheck = async (listaId: string, itemId: string) => {
+  const toggleCheck = async (listaId: any, itemId: any) => {
     let novoMarcado = false;
     setListas(prev => (Array.isArray(prev) ? prev : []).map((l: any) => {
       if (l.id === listaId) {
@@ -609,7 +612,7 @@ function MainApp() {
     });
   };
 
-  const deletarLista = async (id: string) => {
+  const deletarLista = async (id: any) => {
     if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
       const novasListas = (Array.isArray(listas) ? listas.filter((l: any) => l.id !== id) : []);
       setListas(novasListas);

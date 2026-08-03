@@ -5,31 +5,34 @@ import { prisma } from '@/lib/prisma';
 async function obterUsuarioId(usuarioIdentificador: any) {
   if (!usuarioIdentificador) return null;
 
-  // Se já for um número exato
+  // Se o identificador for numérico
   if (!isNaN(usuarioIdentificador)) {
     return parseInt(String(usuarioIdentificador), 10);
   }
 
-  // Se o frontend enviar nome de usuário ou e-mail, busca ou cria na tabela Usuario
+  const termo = String(usuarioIdentificador).trim();
+
+  // Busca se já existe um usuário com este nome ou email
   let usr = await prisma.usuario.findFirst({
     where: {
       OR: [
-        { nome: String(usuarioIdentificador) },
-        { email: String(usuarioIdentificador) }
+        { nome: termo },
+        { email: termo }
       ]
     }
   });
 
+  // Se não existir, cria um novo usuário no banco
   if (!usr) {
     usr = await prisma.usuario.create({
-      data: { nome: String(usuarioIdentificador) }
+      data: { nome: termo }
     });
   }
 
   return usr.id;
 }
 
-// 🟢 GET: Busca listas filtrando pelo ID do usuário
+// 🟢 GET: Busca listas do usuário
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const usuarioParam = searchParams.get('usuario');
@@ -58,7 +61,7 @@ export async function GET(request: Request) {
   }
 }
 
-// 🟢 POST: Cria uma nova lista ou clona a lista padrão para o usuário
+// 🟢 POST: Cria uma nova lista (ou salva a lista padrão clonada)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -70,12 +73,12 @@ export async function POST(request: Request) {
 
     const usrId = await obterUsuarioId(usuario);
 
-    // Prepara os itens da relação ItemLista
+    // Formata cada item descartando IDs em String e ajustando os tipos para o PostgreSQL
     const itensParaCriar = Array.isArray(itens) ? itens.map((item: any) => ({
       nome: String(item.nome || '').toUpperCase(),
-      qtd: parseInt(item.qtd, 10) || 1,
+      qtd: parseInt(String(item.qtd || 1), 10),
       marcado: Boolean(item.marcado),
-      precoEstimado: item.precoEstimado ? parseFloat(item.precoEstimado) : 0,
+      precoEstimado: item.precoEstimado ? parseFloat(String(item.precoEstimado)) : 0,
       marca: String(item.marca || '')
     })) : [];
 
@@ -95,11 +98,11 @@ export async function POST(request: Request) {
     return NextResponse.json(novaLista, { status: 201 });
   } catch (error: any) {
     console.error('Erro detalhado no POST /api/listas:', error);
-    return NextResponse.json({ error: error.message || 'Erro ao criar lista' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Erro ao criar lista' }, { status: 500 });
   }
 }
 
-// 🟢 PUT: Adiciona ou atualiza itens na tabela ItemLista
+// 🟢 PUT: Adiciona ou atualiza itens
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
@@ -112,10 +115,10 @@ export async function PUT(request: Request) {
 
       const novoItem = await prisma.itemLista.create({
         data: {
-          listaId: parseInt(listaId, 10),
+          listaId: parseInt(String(listaId), 10),
           nome: String(nome).toUpperCase(),
-          qtd: parseInt(qtd, 10) || 1,
-          precoEstimado: precoEstimado ? parseFloat(precoEstimado) : 0,
+          qtd: parseInt(String(qtd || 1), 10),
+          precoEstimado: precoEstimado ? parseFloat(String(precoEstimado)) : 0,
           marca: String(marca || ''),
           marcado: false
         }
@@ -129,9 +132,9 @@ export async function PUT(request: Request) {
       }
 
       const itemAtualizado = await prisma.itemLista.update({
-        where: { id: parseInt(itemId, 10) },
+        where: { id: parseInt(String(itemId), 10) },
         data: {
-          ...(qtd !== undefined && { qtd: parseInt(qtd, 10) }),
+          ...(qtd !== undefined && { qtd: parseInt(String(qtd), 10) }),
           ...(marcado !== undefined && { marcado: Boolean(marcado) })
         }
       });
@@ -154,14 +157,14 @@ export async function DELETE(request: Request) {
   try {
     if (listaId) {
       await prisma.lista.delete({
-        where: { id: parseInt(listaId, 10) }
+        where: { id: parseInt(String(listaId), 10) }
       });
       return NextResponse.json({ success: true });
     }
 
     if (itemId) {
       await prisma.itemLista.delete({
-        where: { id: parseInt(itemId, 10) }
+        where: { id: parseInt(String(itemId), 10) }
       });
       return NextResponse.json({ success: true });
     }
