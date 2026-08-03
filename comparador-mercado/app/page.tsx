@@ -814,7 +814,7 @@ function MainApp() {
   const listaMercadosOrdenados = todosMercadosECupons.map(mercado => {
     let totalCalculado = 0;
 
-    const itensDetalhado = itensDaListaAtiva.map(item => {
+    const itensDetalhado = itensDaListaAtiva.map((item: any) => {
       let precoUn: number;
       let origemPreco: string;
 
