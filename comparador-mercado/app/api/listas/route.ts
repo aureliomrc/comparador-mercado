@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Helper para converter ou encontrar o ID do usuário (como número)
-async function obterUsuarioId(usuarioIdentificador) {
+async function obterUsuarioId(usuarioIdentificador: any) {
   if (!usuarioIdentificador) return null;
 
   // Se já for um número exato
   if (!isNaN(usuarioIdentificador)) {
-    return parseInt(usuarioIdentificador, 10);
+    return parseInt(String(usuarioIdentificador), 10);
   }
 
   // Se o frontend enviar nome de usuário ou e-mail, busca ou cria na tabela Usuario
@@ -30,7 +30,7 @@ async function obterUsuarioId(usuarioIdentificador) {
 }
 
 // 🟢 GET: Busca listas filtrando pelo ID do usuário
-export async function GET(request) {
+export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const usuarioParam = searchParams.get('usuario');
 
@@ -41,6 +41,10 @@ export async function GET(request) {
   try {
     const usrId = await obterUsuarioId(usuarioParam);
 
+    if (!usrId) {
+      return NextResponse.json([]);
+    }
+
     const listas = await prisma.lista.findMany({
       where: { usuarioId: usrId },
       include: { itens: true },
@@ -48,14 +52,14 @@ export async function GET(request) {
     });
 
     return NextResponse.json(listas);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro no GET /api/listas:', error);
     return NextResponse.json({ error: 'Erro ao buscar listas' }, { status: 500 });
   }
 }
 
 // 🟢 POST: Cria uma nova lista ou clona a lista padrão para o usuário
-export async function POST(request) {
+export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { usuario, nome, itens } = body;
@@ -67,7 +71,7 @@ export async function POST(request) {
     const usrId = await obterUsuarioId(usuario);
 
     // Prepara os itens da relação ItemLista
-    const itensParaCriar = Array.isArray(itens) ? itens.map((item) => ({
+    const itensParaCriar = Array.isArray(itens) ? itens.map((item: any) => ({
       nome: String(item.nome || '').toUpperCase(),
       qtd: parseInt(item.qtd, 10) || 1,
       marcado: Boolean(item.marcado),
@@ -89,14 +93,14 @@ export async function POST(request) {
     });
 
     return NextResponse.json(novaLista, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro detalhado no POST /api/listas:', error);
     return NextResponse.json({ error: error.message || 'Erro ao criar lista' }, { status: 500 });
   }
 }
 
 // 🟢 PUT: Adiciona ou atualiza itens na tabela ItemLista
-export async function PUT(request) {
+export async function PUT(request: Request) {
   try {
     const body = await request.json();
     const { acao, listaId, itemId, nome, qtd, precoEstimado, marca, marcado } = body;
@@ -135,14 +139,14 @@ export async function PUT(request) {
     }
 
     return NextResponse.json({ error: 'Ação não reconhecida' }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro no PUT /api/listas:', error);
     return NextResponse.json({ error: 'Erro ao atualizar item' }, { status: 500 });
   }
 }
 
 // 🟢 DELETE: Remove item ou lista do banco
-export async function DELETE(request) {
+export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const listaId = searchParams.get('listaId');
   const itemId = searchParams.get('itemId');
@@ -163,7 +167,7 @@ export async function DELETE(request) {
     }
 
     return NextResponse.json({ error: 'Nenhum ID informado' }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro no DELETE /api/listas:', error);
     return NextResponse.json({ error: 'Erro ao deletar' }, { status: 500 });
   }
