@@ -4,12 +4,11 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Função para extrair itens do HTML da SEFAZ
+// Helper para extrair itens da SEFAZ
 function extrairItensSefaz(htmlText: string) {
   const $ = cheerio.load(htmlText);
   const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-  // Padrão comum da SEFAZ (tabela id #tabResult ou classe .txtTit)
   $('#tabResult tr, table.tr_item').each((_, el) => {
     const nome = $(el).find('.txtTit, .txtTit2, .txtTit3').text().trim().toUpperCase();
     const precoText = $(el).find('.R$ , .valor, .Rval').text().replace(',', '.').replace(/[^0-9.]/g, '');
@@ -30,36 +29,87 @@ function extrairItensSefaz(htmlText: string) {
 // GET: Buscar cupons do usuário
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const usuario = searchParams.get('usuario');
+  const nomeUsuario = searchParams.get('usuario');
 
-  if (!usuario) {
+  if (!nomeUsuario) {
     return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
   }
 
   try {
-    const cupons = await prisma.cupom.findMany({
-      where: { usuario },
-      orderBy: { createdAt: 'desc' },
+    // Usando o modelo correto CupomFiscal
+    const cupons = await prisma.cupomFiscal.findMany({
+      where: {
+        usuario: {
+          nome: nomeUsuario,
+        },
+      },
+      include: {
+        mercado: true,
+        itens: {
+          include: {
+            produto: true,
+          },
+        },
+      },
+      orderBy: { criadoEm: 'desc' },
     });
-    return NextResponse.json(cupons);
+
+    // Formata o retorno para o frontend manter o padrão esperado
+    const cuponsFormatados = cupons.map((c) => ({
+      id: c.id,
+      mercado: c.mercado.nome,
+      url: c.chaveAcesso,
+      data: c.dataEmissao.toLocaleDateString('pt-BR'),
+      hora: c.dataEmissao.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      itens: c.itens.map((i) => ({
+        nome: i.produto.nome,
+        preco: Number(i.precoUnitario),
+        qtd: Number(i.quantidade),
+      })),
+    }));
+
+    return NextResponse.json(cuponsFormatados);
   } catch (err: any) {
+    console.error('Erro ao buscar cupons:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-// POST: Baixar SEFAZ e Salvar Cupom
+// POST: Salvar Cupom e Relacionamentos
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { usuario, mercado, url, data, hora } = body;
+    const { usuario: nomeUsuario, mercado: nomeMercado, url } = body;
 
-    if (!usuario) {
+    if (!nomeUsuario) {
       return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
     }
 
+    // 1. Garante que o usuário existe no banco
+    let usuarioEncontrado = await prisma.usuario.findFirst({
+      where: { nome: nomeUsuario },
+    });
+
+    if (!usuarioEncontrado) {
+      usuarioEncontrado = await prisma.usuario.create({
+        data: { nome: nomeUsuario },
+      });
+    }
+
+    // 2. Garante que o mercado existe no banco
+    let mercadoEncontrado = await prisma.mercado.findFirst({
+      where: { nome: nomeMercado.toUpperCase() },
+    });
+
+    if (!mercadoEncontrado) {
+      mercadoEncontrado = await prisma.mercado.create({
+        data: { nome: nomeMercado.toUpperCase() },
+      });
+    }
+
+    // 3. Efetua o scraping da SEFAZ
     let itensExtraidos: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-    // Fazer requisição HTTP no Node.js (sem bloqueio de CORS)
     if (url && url.startsWith('http')) {
       try {
         const responseSefaz = await fetch(url, {
@@ -77,26 +127,78 @@ export async function POST(req: Request) {
       }
     }
 
-    // Salvar no banco Neon DB via Prisma
-    const novoCupom = await prisma.cupom.create({
+    const valorTotalCalculado = itensExtraidos.reduce(
+      (acc, item) => acc + item.preco * item.qtd,
+      0
+    );
+
+    // Chave de acesso temporária (caso não tenha raspado a chave real da URL)
+    const chaveGerada = url || `CHAVE_${Date.now()}`;
+
+    // 4. Cria o CupomFiscal com os itens vinculados
+    const novoCupom = await prisma.cupomFiscal.create({
       data: {
-        usuario,
-        mercado,
-        url: url || '',
-        data: data || new Date().toLocaleDateString('pt-BR'),
-        hora: hora || new Date().toLocaleTimeString('pt-BR'),
-        itens: JSON.stringify(itensExtraidos),
+        chaveAcesso: chaveGerada,
+        valorTotal: valorTotalCalculado,
+        mercadoId: mercadoEncontrado.id,
+        usuarioId: usuarioEncontrado.id,
       },
     });
 
-    return NextResponse.json(novoCupom);
+    // 5. Salva os produtos e os itens do cupom
+    const itensFormatadosParaFrontend = [];
+
+    for (const item of itensExtraidos) {
+      let produto = await prisma.produto.findUnique({
+        where: { nome: item.nome },
+      });
+
+      if (!produto) {
+        produto = await prisma.produto.create({
+          data: { nome: item.nome },
+        });
+      }
+
+      await prisma.itemCupom.create({
+        data: {
+          cupomId: novoCupom.id,
+          produtoId: produto.id,
+          quantidade: item.qtd,
+          precoUnitario: item.preco,
+        },
+      });
+
+      // Registra no Histórico Público
+      await prisma.historicoPrecoPublico.create({
+        data: {
+          preco: item.preco,
+          produtoId: produto.id,
+          mercadoId: mercadoEncontrado.id,
+        },
+      });
+
+      itensFormatadosParaFrontend.push({
+        nome: produto.nome,
+        preco: item.preco,
+        qtd: item.qtd,
+      });
+    }
+
+    return NextResponse.json({
+      id: novoCupom.id,
+      mercado: mercadoEncontrado.nome,
+      url: novoCupom.chaveAcesso,
+      data: novoCupom.dataEmissao.toLocaleDateString('pt-BR'),
+      hora: novoCupom.dataEmissao.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      itens: itensFormatadosParaFrontend,
+    });
   } catch (err: any) {
-    console.error('Erro no endpoint POST /api/cupons:', err);
+    console.error('Erro ao salvar CupomFiscal:', err);
     return NextResponse.json({ error: err.message || 'Erro interno no servidor' }, { status: 500 });
   }
 }
 
-// DELETE: Excluir cupom
+// DELETE: Deletar cupom
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
@@ -106,8 +208,8 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    await prisma.cupom.delete({
-      where: { id: String(id) },
+    await prisma.cupomFiscal.delete({
+      where: { id: Number(id) },
     });
     return NextResponse.json({ success: true });
   } catch (err: any) {
