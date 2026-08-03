@@ -102,28 +102,63 @@ const buscarPrecoNoCupom = (itemNomeLista: string, cupomItens: any) => {
   return preco ? Number(preco) : null;
 };
 
-// HELPER CLIENT-SIDE DE EXTRAÇÃO DOS ITENS VIA DOM
+// PARSER MULTI-SETARES DE EXTRAÇÃO CLIENT-SIDE (NFC-e SP E DEMAIS SEFAZs)
 function extrairItensDoHtmlString(htmlString: string) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlString, 'text/html');
   const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-  const elementos = doc.querySelectorAll('#tabResult tr, table.tr_item, tr[id^="Item"], div[id*="item"], tr[class*="item"], .txtBox');
-  elementos.forEach((el) => {
-    const nomeEl = el.querySelector('.txtTit, .txtTit2, .txtTit3, .txtBox, span[class*="nome"], td[class*="produto"]');
-    const precoEl = el.querySelector('.R$ , .valor, .Rval, .valorTotal, span[class*="valor"]');
-    const qtdEl = el.querySelector('.Rqtd, .qtd, .quantidade, span[class*="qtd"]');
+  const linhas = doc.querySelectorAll('#tabResult tr, table[id*="Item"] tr, #tableItens tr, .table-items tr, tr[id^="Item"]');
+
+  linhas.forEach((el) => {
+    const nomeEl = el.querySelector('.txtTit, .txtTit2, .txtBox, td.fixo-td-descricao, span[id*="lblNome"], .txtTit3, td:nth-child(1)');
+    const precoEl = el.querySelector('.R$, .valor, .Rval, .valorTotal, td.fixo-td-valor, span[id*="lblValorTotal"]');
+    const qtdEl = el.querySelector('.Rqtd, .qtd, .quantidade, td.fixo-td-qtd, span[id*="lblQuantidade"]');
 
     if (nomeEl && nomeEl.textContent) {
-      const nome = nomeEl.textContent.trim().toUpperCase();
-      const preco = parseFloat((precoEl?.textContent || '').replace(',', '.').replace(/[^0-9.]/g, '')) || 0;
-      const qtd = parseFloat((qtdEl?.textContent || '').replace(',', '.').replace(/[^0-9.]/g, '')) || 1;
+      const nomeLimpo = nomeEl.textContent.trim().toUpperCase().replace(/\s+/g, ' ');
+      
+      if (
+        nomeLimpo && 
+        nomeLimpo.length > 2 && 
+        !nomeLimpo.includes('CÓDIGO') && 
+        !nomeLimpo.includes('DESCRIÇÃO') &&
+        !nomeLimpo.includes('DESC')
+      ) {
+        let preco = 0;
+        let qtd = 1;
 
-      if (nome.length > 2) {
-        itens.push({ nome: nome.replace(/\s+/g, ' '), preco, qtd });
+        if (precoEl?.textContent) {
+          const rawPreco = precoEl.textContent.replace('R$', '').replace('.', '').replace(',', '.').trim();
+          preco = parseFloat(rawPreco) || 0;
+        }
+
+        if (qtdEl?.textContent) {
+          const rawQtd = qtdEl.textContent.replace('Qtde.:', '').replace('QTD:', '').replace(',', '.').trim();
+          qtd = parseFloat(rawQtd) || 1;
+        }
+
+        itens.push({ nome: nomeLimpo, preco, qtd });
       }
     }
   });
+
+  if (itens.length === 0) {
+    const produtosDivs = doc.querySelectorAll('div[id*="Item"], div[class*="item-cupom"], .div-item');
+    produtosDivs.forEach((div) => {
+      const nome = div.querySelector('.nome, .descricao, .txtTit')?.textContent?.trim().toUpperCase();
+      const valStr = div.querySelector('.valor, .preco')?.textContent?.replace(',', '.').replace(/[^0-9.]/g, '');
+      const qtdStr = div.querySelector('.qtd, .quantidade')?.textContent?.replace(',', '.').replace(/[^0-9.]/g, '');
+
+      if (nome && nome.length > 2) {
+        itens.push({
+          nome,
+          preco: parseFloat(valStr || '0') || 0,
+          qtd: parseFloat(qtdStr || '1') || 1
+        });
+      }
+    });
+  }
 
   return itens;
 }
@@ -315,13 +350,12 @@ function MainApp() {
         (decodedText) => {
           setQrUrlInput(decodedText);
           pararScanner();
-          alert(`✅ QR Code lido com sucesso!\n\nClique em "Salvar Cupom" abaixo para processar.`);
         },
         () => {}
       );
     } catch (err) {
       console.error('Erro ao iniciar câmera:', err);
-      setCameraError('Não foi possível abrir a câmera. Permita o acesso no navegador ou insira a URL manualmente.');
+      setCameraError('Não foi possível abrir a câmera. Permita o acesso no navegador.');
     }
   };
 
@@ -398,23 +432,25 @@ function MainApp() {
     );
   };
 
-  // PROCESSAMENTO DO QR CODE COM FALLBACK MULTI-PROXY NO CLIENT-SIDE
+  // PROCESSAMENTO DO QR CODE (COM GARANTIA DE ENVIO DA URL E NOME FANTASIA)
   const processarCupomQrCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
-      return alert('Preencha o nome do estabelecimento ou escaneie o QR Code!');
+
+    if (!qrUrlInput || !qrUrlInput.trim()) {
+      return alert('⚠️ Por favor, escaneie o QR Code do cupom com a câmera primeiro!');
     }
 
     setIsSalvandoCupom(true);
     const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
+    const urlQrCapturada = qrUrlInput.trim();
+
     let itensClientSide: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-    // TENTATIVA NO CLIENTE COM MÚLTIPLOS PROXIES CORS (Se um falhar, tenta o outro)
-    if (qrUrlInput && qrUrlInput.startsWith('http')) {
+    if (urlQrCapturada.startsWith('http')) {
       const proxies = [
-        `https://api.allorigins.win/get?url=${encodeURIComponent(qrUrlInput)}`,
-        `https://corsproxy.io/?${encodeURIComponent(qrUrlInput)}`,
-        `https://thingproxy.freeboard.io/fetch/${qrUrlInput}`
+        `https://api.allorigins.win/get?url=${encodeURIComponent(urlQrCapturada)}`,
+        `https://corsproxy.io/?${encodeURIComponent(urlQrCapturada)}`,
+        `https://thingproxy.freeboard.io/fetch/${urlQrCapturada}`
       ];
 
       for (const proxyUrl of proxies) {
@@ -433,12 +469,12 @@ function MainApp() {
               const extraidos = extrairItensDoHtmlString(htmlText);
               if (extraidos.length > 0) {
                 itensClientSide = extraidos;
-                break; // Encontrou os itens! Para os proxies e prossegue
+                break;
               }
             }
           }
         } catch (err) {
-          console.warn(`Tentativa de extração via proxy falhou (${proxyUrl}):`, err);
+          console.warn(`Proxy falhou (${proxyUrl}):`, err);
         }
       }
     }
@@ -450,10 +486,10 @@ function MainApp() {
         body: JSON.stringify({
           usuario: usuario,
           mercado: nomeEstabelecimento,
-          url: qrUrlInput.trim(),
+          url: urlQrCapturada, // URL preservada!
           data: new Date().toLocaleDateString('pt-BR'),
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          itens: itensClientSide // Envia os itens coletados pelo celular
+          itens: itensClientSide
         })
       });
 
@@ -463,13 +499,13 @@ function MainApp() {
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
-        alert(`✅ Cupom lido e salvo com sucesso! (${cupomSalvo.itens?.length || 0} produtos cadastrados)`);
+        alert(`✅ Cupom salvo com sucesso! (${cupomSalvo.itens?.length || 0} produtos cadastrados)`);
       } else {
         const errorData = await res.json().catch(() => null);
         alert(`❌ Erro ao salvar: ${errorData?.error || 'Tente novamente'}`);
       }
     } catch (err) {
-      console.error('Erro de conexão ao salvar cupom:', err);
+      console.error('Erro ao salvar cupom:', err);
       alert('❌ Falha na conexão com o servidor.');
     } finally {
       setIsSalvandoCupom(false);
@@ -815,7 +851,6 @@ function MainApp() {
                 <div className="overflow-y-auto text-xs text-gray-600 space-y-3 pr-2 flex-1">
                   <p className="font-bold text-gray-800">1. Coleta de Dados</p>
                   <p>Coletamos seu nome, e-mail e usuário para identificar suas listas de compras no app Tá Quanto?.</p>
-                  
                   <p className="font-bold text-gray-800">2. Uso das Listas e Cupons</p>
                   <p>Seus cupons e listas ficam salvos exclusivamente na sua conta do banco de dados.</p>
                 </div>
@@ -1353,7 +1388,7 @@ function MainApp() {
           <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
-                <span>📷</span> Escanear QR Code do Cupom
+                <span>📷</span> Escanear QR Code
               </h3>
               <button 
                 onClick={fecharModalQr}
@@ -1374,27 +1409,33 @@ function MainApp() {
             <form onSubmit={processarCupomQrCode} className="space-y-3">
               <div>
                 <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                  Nome do Estabelecimento:
+                  Nome do Estabelecimento (Opcional):
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Mercado do Zé, Carrefour..."
+                  placeholder="Ex: Assaí, Carrefour, Extra..."
                   value={nomeFantasiaInput}
                   onChange={(e) => setNomeFantasiaInput(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white text-gray-900 font-semibold"
                 />
               </div>
 
-              {qrUrlInput && (
-                <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-200">
-                  <span className="text-[10px] font-bold text-purple-900 block">
-                    ✓ QR Code Lido!
+              {/* Status de Leitura da URL */}
+              <div className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                qrUrlInput ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-amber-50 border-amber-300 text-amber-800'
+              }`}>
+                <span>{qrUrlInput ? '✅' : '⏳'}</span>
+                <div className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-extrabold uppercase">
+                    {qrUrlInput ? 'QR Code Capturado!' : 'Aguardando leitura do QR Code na câmera...'}
                   </span>
-                  <span className="text-[9px] text-purple-700 font-mono truncate block">
-                    {qrUrlInput}
-                  </span>
+                  {qrUrlInput && (
+                    <span className="text-[9px] font-mono truncate block text-emerald-600 font-normal">
+                      {qrUrlInput}
+                    </span>
+                  )}
                 </div>
-              )}
+              </div>
 
               <div className="flex gap-2 pt-1">
                 <button
@@ -1407,10 +1448,14 @@ function MainApp() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSalvandoCupom}
-                  className="flex-1 bg-purple-600 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow flex items-center justify-center gap-1"
+                  disabled={isSalvandoCupom || !qrUrlInput}
+                  className={`flex-1 font-bold py-2.5 rounded-xl text-xs shadow flex items-center justify-center gap-1 text-white transition-all ${
+                    !qrUrlInput 
+                      ? 'bg-gray-300 cursor-not-allowed' 
+                      : 'bg-purple-600 hover:bg-purple-700'
+                  }`}
                 >
-                  {isSalvandoCupom ? 'Buscando Produtos...' : 'Salvar Cupom'}
+                  {isSalvandoCupom ? 'Extraindo Produtos...' : 'Salvar Cupom'}
                 </button>
               </div>
             </form>
