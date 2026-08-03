@@ -4,24 +4,45 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Helper para extrair itens da SEFAZ
+// Helper completo com múltiplos seletores de SEFAZ estaduais
 function extrairItensSefaz(htmlText: string) {
   const $ = cheerio.load(htmlText);
   const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-  $('#tabResult tr, table.tr_item').each((_, el) => {
-    const nome = $(el).find('.txtTit, .txtTit2, .txtTit3').text().trim().toUpperCase();
-    const precoText = $(el).find('.R$ , .valor, .Rval').text().replace(',', '.').replace(/[^0-9.]/g, '');
-    const qtdText = $(el).find('.Rqtd, .qtd').text().replace(',', '.').replace(/[^0-9.]/g, '');
+  // Seletor 1: Padrão SP / RS / PR (Tabela tabResult ou tr_item)
+  $('#tabResult tr, table.tr_item, tr[id^="Item"]').each((_, el) => {
+    const nome = $(el).find('.txtTit, .txtTit2, .txtTit3, .txtBox, span[class*="nome"], td[class*="produto"]').text().trim().toUpperCase();
+    const precoText = $(el).find('.R$ , .valor, .Rval, .valorTotal, span[class*="valor"]').text().replace(',', '.').replace(/[^0-9.]/g, '');
+    const qtdText = $(el).find('.Rqtd, .qtd, .quantidade, span[class*="qtd"]').text().replace(',', '.').replace(/[^0-9.]/g, '');
 
-    if (nome) {
+    if (nome && nome.length > 2) {
+      const preco = parseFloat(precoText);
+      const qtd = parseFloat(qtdText);
+
       itens.push({
-        nome,
-        preco: parseFloat(precoText) || 0,
-        qtd: parseFloat(qtdText) || 1,
+        nome: nome.replace(/\s+/g, ' '),
+        preco: !isNaN(preco) && preco > 0 ? preco : 0,
+        qtd: !isNaN(qtd) && qtd > 0 ? qtd : 1,
       });
     }
   });
+
+  // Seletor 2: Caso o HTML venha em formato de Lista (ul/li) ou divs flex (padrão NFC-e modernizado)
+  if (itens.length === 0) {
+    $('div[id*="item"], div[class*="item"], li[class*="item"]').each((_, el) => {
+      const nome = $(el).find('.txtTit, .nome, span[id*="nome"]').text().trim().toUpperCase();
+      const precoText = $(el).find('.valor, .vUnit, .R$').text().replace(',', '.').replace(/[^0-9.]/g, '');
+      const qtdText = $(el).find('.qtd, .qnt').text().replace(',', '.').replace(/[^0-9.]/g, '');
+
+      if (nome && nome.length > 2) {
+        itens.push({
+          nome: nome.replace(/\s+/g, ' '),
+          preco: parseFloat(precoText) || 0,
+          qtd: parseFloat(qtdText) || 1,
+        });
+      }
+    });
+  }
 
   return itens;
 }
@@ -36,7 +57,6 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Usando o modelo correto CupomFiscal
     const cupons = await prisma.cupomFiscal.findMany({
       where: {
         usuario: {
@@ -54,7 +74,6 @@ export async function GET(req: Request) {
       orderBy: { criadoEm: 'desc' },
     });
 
-    // Formata o retorno para o frontend manter o padrão esperado
     const cuponsFormatados = cupons.map((c) => ({
       id: c.id,
       mercado: c.mercado.nome,
@@ -79,7 +98,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { usuario: nomeUsuario, mercado: nomeMercado, url } = body;
+    const { usuario: nomeUsuario, mercado: nomeMercado, url, itens: itensPayload } = body;
 
     if (!nomeUsuario) {
       return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
@@ -98,23 +117,24 @@ export async function POST(req: Request) {
 
     // 2. Garante que o mercado existe no banco
     let mercadoEncontrado = await prisma.mercado.findFirst({
-      where: { nome: nomeMercado.toUpperCase() },
+      where: { nome: (nomeMercado || 'MERCADO').toUpperCase() },
     });
 
     if (!mercadoEncontrado) {
       mercadoEncontrado = await prisma.mercado.create({
-        data: { nome: nomeMercado.toUpperCase() },
+        data: { nome: (nomeMercado || 'MERCADO').toUpperCase() },
       });
     }
 
-    // 3. Efetua o scraping da SEFAZ
+    // 3. Tenta fazer Scraping via URL se fornecida
     let itensExtraidos: Array<{ nome: string; preco: number; qtd: number }> = [];
 
     if (url && url.startsWith('http')) {
       try {
         const responseSefaz = await fetch(url, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
           },
         });
 
@@ -123,19 +143,23 @@ export async function POST(req: Request) {
           itensExtraidos = extrairItensSefaz(html);
         }
       } catch (errScraping) {
-        console.error('Falha ao baixar HTML da SEFAZ:', errScraping);
+        console.error('Falha ao raspar a SEFAZ:', errScraping);
       }
     }
 
+    // Se o scraping não achar itens ou a URL for vazia, usa os itens se forem enviados no payload
+    if (itensExtraidos.length === 0 && Array.isArray(itensPayload) && itensPayload.length > 0) {
+      itensExtraidos = itensPayload;
+    }
+
     const valorTotalCalculado = itensExtraidos.reduce(
-      (acc, item) => acc + item.preco * item.qtd,
+      (acc, item) => acc + (Number(item.preco) * Number(item.qtd)),
       0
     );
 
-    // Chave de acesso temporária (caso não tenha raspado a chave real da URL)
-    const chaveGerada = url || `CHAVE_${Date.now()}`;
+    const chaveGerada = (url && url.trim().length > 5) ? url : `CUPOM_${Date.now()}`;
 
-    // 4. Cria o CupomFiscal com os itens vinculados
+    // 4. Cria o CupomFiscal
     const novoCupom = await prisma.cupomFiscal.create({
       data: {
         chaveAcesso: chaveGerada,
@@ -149,13 +173,15 @@ export async function POST(req: Request) {
     const itensFormatadosParaFrontend = [];
 
     for (const item of itensExtraidos) {
+      const nomeLimpo = (item.nome || 'PRODUTO').trim().toUpperCase();
+      
       let produto = await prisma.produto.findUnique({
-        where: { nome: item.nome },
+        where: { nome: nomeLimpo },
       });
 
       if (!produto) {
         produto = await prisma.produto.create({
-          data: { nome: item.nome },
+          data: { nome: nomeLimpo },
         });
       }
 
@@ -163,15 +189,15 @@ export async function POST(req: Request) {
         data: {
           cupomId: novoCupom.id,
           produtoId: produto.id,
-          quantidade: item.qtd,
-          precoUnitario: item.preco,
+          quantidade: item.qtd || 1,
+          precoUnitario: item.preco || 0,
         },
       });
 
-      // Registra no Histórico Público
+      // Registra Histórico de Preços
       await prisma.historicoPrecoPublico.create({
         data: {
-          preco: item.preco,
+          preco: item.preco || 0,
           produtoId: produto.id,
           mercadoId: mercadoEncontrado.id,
         },
@@ -179,8 +205,8 @@ export async function POST(req: Request) {
 
       itensFormatadosParaFrontend.push({
         nome: produto.nome,
-        preco: item.preco,
-        qtd: item.qtd,
+        preco: Number(item.preco || 0),
+        qtd: Number(item.qtd || 1),
       });
     }
 
