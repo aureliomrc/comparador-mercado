@@ -7,37 +7,34 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Tabela de Usuários (Opcional no POST, mas mapeada caso exista)
 model Usuario {
   id      Int           @id @default(autoincrement())
   nome    String?
   email   String?       @unique
   cupons  CupomFiscal[]
+  listas  Lista[]
 
   @@map("usuarios")
 }
 
-// Tabela de Mercados
 model Mercado {
-  id               Int                    @id @default(autoincrement())
-  nome             String
-  cupons           CupomFiscal[]
-  historicoPrecos  HistoricoPrecoPublico[]
+  id              Int                     @id @default(autoincrement())
+  nome            String
+  cupons          CupomFiscal[]
+  historicoPrecos HistoricoPrecoPublico[]
 
   @@map("mercados")
 }
 
-// Tabela de Produtos (Cadastro Geral)
 model Produto {
-  id               Int                    @id @default(autoincrement())
-  nome             String                 @unique
-  itensCupom       ItemCupom[]
-  historicoPrecos  HistoricoPrecoPublico[]
+  id              Int                     @id @default(autoincrement())
+  nome            String                  @unique
+  itensCupom      ItemCupom[]
+  historicoPrecos HistoricoPrecoPublico[]
 
   @@map("produtos")
 }
 
-// Tabela do Cupom Fiscal
 model CupomFiscal {
   id          Int         @id @default(autoincrement())
   chaveAcesso String      @unique
@@ -45,51 +42,70 @@ model CupomFiscal {
   dataEmissao DateTime    @default(now())
   criadoEm    DateTime    @default(now())
   
-  // Relacionamento com Mercado
   mercadoId   Int
   mercado     Mercado     @relation(fields: [mercadoId], references: [id], onDelete: Cascade)
 
-  // Relacionamento opcional com Usuário
   usuarioId   Int?
   usuario     Usuario?    @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
 
-  // Relacionamento com os Itens do Cupom
   itens       ItemCupom[]
 
   @@map("cupons_fiscais")
 }
 
-// Tabela Relacional: Itens dentro do Cupom
 model ItemCupom {
   id            Int         @id @default(autoincrement())
   quantidade    Decimal     @db.Decimal(10, 3)
   precoUnitario Decimal     @db.Decimal(10, 2)
 
-  // Relacionamento com Cupom Fiscal (Deleção em Cascata)
   cupomId       Int
   cupom         CupomFiscal @relation(fields: [cupomId], references: [id], onDelete: Cascade)
 
-  // Relacionamento com Produto
   produtoId     Int
   produto       Produto     @relation(fields: [produtoId], references: [id], onDelete: Cascade)
 
   @@map("itens_cupom")
 }
 
-// Tabela do Histórico de Preços (Crowdsourcing)
 model HistoricoPrecoPublico {
-  id            Int      @id @default(autoincrement())
-  preco         Decimal  @db.Decimal(10, 2)
-  origem        String   @default("NFC-e")
-  criadoEm      DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  preco     Decimal  @db.Decimal(10, 2)
+  origem    String   @default("NFC-e")
+  criadoEm  DateTime @default(now())
 
-  // Relacionamento com Produto
-  produtoId     Int
-  produto       Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  produtoId Int
+  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
 
-  // Relacionamento com Mercado
-  mercadoId     Int
-  mercado       Mercado  @relation(fields: [mercadoId], references: [id], onDelete: Cascade)
+  mercadoId Int
+  mercado   Mercado  @relation(fields: [mercadoId], references: [id], onDelete: Cascade)
 
   @@map("historico_precos_publico")
+}
+
+// 📌 Tabela Lista atualizada para ser 100% compatível com a sua rota
+model Lista {
+  id          Int         @id @default(autoincrement())
+  nome        String
+  isPrincipal Boolean     @default(false)
+  usuarioId   Int?
+  usuario     Usuario?    @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  criadoEm    DateTime    @default(now())
+  itens       ItemLista[]
+
+  @@map("listas")
+}
+
+// 📌 Tabela ItemLista atualizada
+model ItemLista {
+  id            Int      @id @default(autoincrement())
+  nome          String
+  qtd           Int      @default(1)
+  marcado       Boolean  @default(false)
+  precoEstimado Decimal? @db.Decimal(10, 2)
+  marca         String?
+  
+  listaId       Int
+  lista         Lista    @relation(fields: [listaId], references: [id], onDelete: Cascade)
+
+  @@map("itens_lista")
 }

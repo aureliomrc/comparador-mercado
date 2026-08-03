@@ -14,7 +14,7 @@ function extrairNumero(texto: string | null | undefined): number {
   return isNaN(num) ? 0 : num;
 }
 
-// GET: Lista todos os cupons salvos no Neon DB
+// GET: Busca todos os cupons no Neon DB
 export async function GET() {
   try {
     const cupons = await prisma.cupomFiscal.findMany({
@@ -53,35 +53,35 @@ export async function GET() {
   }
 }
 
-// POST: Recebe URL ou HTML extraído do celular e salva no Neon DB
+// POST: Salva o cupom e extrai os itens para o Neon DB
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const qrUrl = body.url;
+    const qrUrl = body.url ? String(body.url).trim() : '';
     let htmlContent = body.html || '';
 
     let produtosExtraidos: Array<{ nome: string; preco: number; qtd: number }> = [];
-    let nomeMercadoSefaz = body.mercado || 'SUPERMERCADO';
+    let nomeMercadoSefaz = body.mercado ? String(body.mercado).trim().toUpperCase() : 'SUPERMERCADO';
 
-    // Se o front-end não enviou o HTML, tenta buscar no servidor
-    if (!htmlContent && qrUrl && typeof qrUrl === 'string' && qrUrl.startsWith('http')) {
+    // Download do HTML via servidor caso o browser não tenha enviado
+    if (!htmlContent && qrUrl && qrUrl.startsWith('http')) {
       try {
         const response = await fetch(qrUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'pt-BR,pt;q=0.9'
           },
-          signal: AbortSignal.timeout(6000) // Timeout de 6s para não derrubar a Vercel
+          signal: AbortSignal.timeout(6000)
         });
         if (response.ok) {
           htmlContent = await response.text();
         }
       } catch (errScraping) {
-        console.warn('Aviso: Falha ao buscar direto na SEFAZ (possível bloqueio de IP da Vercel).');
+        console.warn('Scraping direto no servidor falhou/bloqueado pela SEFAZ.');
       }
     }
 
-    // Processamento do HTML com Cheerio
+    // Processamento do HTML via Cheerio
     if (htmlContent) {
       const $ = cheerio.load(htmlContent);
 
@@ -136,10 +136,11 @@ export async function POST(request: Request) {
       });
     }
 
-    // Evita duplicidade de chave gerando um identificador único por milissegundos
-    const chaveAcessoFinal = qrUrl ? `${qrUrl}_${Date.now()}` : `CHAVE_${Date.now()}`;
+    // Chave única para previnir erro no @unique do banco
+    const chaveAcessoFinal = qrUrl 
+      ? `${qrUrl}_${Date.now()}` 
+      : `CUPOM_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    // Transação no PostgreSQL (Neon DB)
     const resultado = await prisma.$transaction(async (tx) => {
       let mercado = await tx.mercado.findFirst({
         where: { nome: nomeMercadoSefaz }
@@ -165,15 +166,12 @@ export async function POST(request: Request) {
       });
 
       for (const item of produtosExtraidos) {
-        let produto = await tx.produto.findFirst({
-          where: { nome: item.nome }
+        // USO DO UPSERT: Impede a quebra de transação caso o produto já exista
+        const produto = await tx.produto.upsert({
+          where: { nome: item.nome },
+          update: {},
+          create: { nome: item.nome }
         });
-
-        if (!produto) {
-          produto = await tx.produto.create({
-            data: { nome: item.nome }
-          });
-        }
 
         await tx.itemCupom.create({
           data: {
