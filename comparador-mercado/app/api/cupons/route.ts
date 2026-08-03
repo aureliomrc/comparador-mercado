@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-// 🛡️ Helper com tipagem explícita no parâmetro para evitar o 'implicitly has an any type'
+// 🛡️ Helper para validar/resolver usuarioId sem estourar Foreign Key nem erro de undefined
 async function obterUsuarioId(usuarioIdentificador: any): Promise<number | null> {
   if (!usuarioIdentificador) return null;
 
@@ -39,7 +39,7 @@ async function obterUsuarioId(usuarioIdentificador: any): Promise<number | null>
   }
 }
 
-// 🧠 Helper simples para extrair dados via Regex caso haja HTML da SEFAZ
+// 🧠 Extração blindada do HTML
 function extrairDadosSefaz(html: any) {
   const itens: any[] = [];
   let mercado = '';
@@ -52,7 +52,7 @@ function extrairDadosSefaz(html: any) {
     const matchMercado = html.match(/class=["']txtTopo["'][^>]*>([^<]+)/i) || 
                          html.match(/id=["']txtNomeEmpresa["'][^>]*>([^<]+)/i);
     if (matchMercado && matchMercado[1]) {
-      mercado = matchMercado[1].trim();
+      mercado = String(matchMercado[1]).trim();
     }
 
     const regexLinhaItem = /<tr[^>]*id=["']Item\s*\d+["'][^>]*>([\s\S]*?)<\/tr>/gi;
@@ -66,9 +66,9 @@ function extrairDadosSefaz(html: any) {
 
       if (matchNome && matchNome[1]) {
         itens.push({
-          nome: String(matchNome[1]).trim().toUpperCase(),
-          qtd: matchQtd && matchQtd[1] ? parseFloat(matchQtd[1].replace(',', '.')) : 1,
-          preco: matchPreco && matchPreco[1] ? parseFloat(matchPreco[1].replace(',', '.')) : 0
+          nome: String(matchNome[1] || '').trim().toUpperCase(),
+          qtd: matchQtd && matchQtd[1] ? parseFloat(String(matchQtd[1]).replace(',', '.')) : 1,
+          preco: matchPreco && matchPreco[1] ? parseFloat(String(matchPreco[1]).replace(',', '.')) : 0
         });
       }
     }
@@ -79,7 +79,7 @@ function extrairDadosSefaz(html: any) {
   return { mercado, itens };
 }
 
-// 🟢 GET: Busca cupons salvos do usuário
+// 🟢 GET: Busca cupons
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -101,15 +101,24 @@ export async function GET(request: Request) {
     });
 
     const cuponsFormatados = (cupons || []).map((c: any) => {
-      let itensParsed = [];
+      let itensParsed: any[] = [];
       try {
-        itensParsed = typeof c?.itens === 'string' ? JSON.parse(c.itens) : (c?.itens || []);
+        if (typeof c?.itens === 'string') {
+          itensParsed = JSON.parse(c.itens);
+        } else if (Array.isArray(c?.itens)) {
+          itensParsed = c.itens;
+        }
       } catch (e) {
         itensParsed = [];
       }
       return {
-        ...c,
-        itens: itensParsed
+        id: c?.id || 0,
+        mercado: c?.mercado || 'MERCADO',
+        url: c?.url || '',
+        data: c?.data || '',
+        hora: c?.hora || '',
+        itens: Array.isArray(itensParsed) ? itensParsed : [],
+        criadoEm: c?.criadoEm || new Date()
       };
     });
 
@@ -120,17 +129,18 @@ export async function GET(request: Request) {
   }
 }
 
-// 🟢 POST: Processa e salva o cupom fiscal
+// 🟢 POST: Salva o cupom garantindo que TUDO que for retornado existe
 export async function POST(request: Request) {
   try {
-    const body = await request.json().catch(() => ({}));
+    // Garante que o body não seja nulo
+    const body = await request.json().catch(() => ({})) || {};
     
-    const usuario = body?.usuario;
-    const mercadoDigitado = body?.mercado;
-    const url = body?.url || '';
-    const html = body?.html || '';
-    const data = body?.data || new Date().toLocaleDateString('pt-BR');
-    const hora = body?.hora || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const usuario = body.usuario;
+    const mercadoDigitado = body.mercado;
+    const url = body.url || '';
+    const html = body.html || '';
+    const data = body.data || new Date().toLocaleDateString('pt-BR');
+    const hora = body.hora || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     if (!usuario) {
       return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
@@ -143,7 +153,7 @@ export async function POST(request: Request) {
     } else if (url && typeof url === 'string' && url.startsWith('http')) {
       try {
         const resUrl = await fetch(url);
-        if (resUrl?.ok) {
+        if (resUrl && resUrl.ok) {
           const htmlTexto = await resUrl.text();
           dadosExtraidos = extrairDadosSefaz(htmlTexto);
         }
@@ -152,7 +162,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Prioriza o nome fantasia digitado
+    // Prioridade total para o nome fantasia que você digitou no formulário
     const nomeMercadoFinal = (mercadoDigitado && String(mercadoDigitado).trim() !== '') 
       ? String(mercadoDigitado).trim().toUpperCase() 
       : (dadosExtraidos.mercado || 'MERCADO VIA QR CODE').toUpperCase();
@@ -163,20 +173,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Não foi possível associar a um usuário válido' }, { status: 400 });
     }
 
+    const itensParaSalvar = Array.isArray(dadosExtraidos?.itens) ? dadosExtraidos.itens : [];
+
     const cupomSalvo = await prisma.cupom.create({
       data: {
         mercado: nomeMercadoFinal,
-        url: url,
-        data: data,
-        hora: hora,
-        itens: JSON.stringify(dadosExtraidos?.itens || []),
+        url: String(url || ''),
+        data: String(data || ''),
+        hora: String(hora || ''),
+        itens: JSON.stringify(itensParaSalvar),
         usuarioId: usrId
       }
     });
 
+    // Retorna resposta sanitizada para que o Frontend nunca receba propriedades 'undefined'
     return NextResponse.json({
-      ...cupomSalvo,
-      itens: dadosExtraidos?.itens || []
+      id: cupomSalvo.id,
+      mercado: cupomSalvo.mercado || nomeMercadoFinal,
+      url: cupomSalvo.url || '',
+      data: cupomSalvo.data || '',
+      hora: cupomSalvo.hora || '',
+      usuarioId: cupomSalvo.usuarioId,
+      itens: itensParaSalvar
     }, { status: 201 });
 
   } catch (error: any) {
@@ -185,7 +203,7 @@ export async function POST(request: Request) {
   }
 }
 
-// 🟢 DELETE: Remove um cupom salvo
+// 🟢 DELETE: Remove o cupom
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
