@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-// 🛡️ Helper à prova de falhas para resolver e validar o ID do Usuário
-async function obterUsuarioId(usuarioIdentificador) {
+// 🛡️ Helper com tipagem explícita no parâmetro para evitar o 'implicitly has an any type'
+async function obterUsuarioId(usuarioIdentificador: any): Promise<number | null> {
   if (!usuarioIdentificador) return null;
 
   const termo = String(usuarioIdentificador || '').trim();
@@ -40,8 +40,8 @@ async function obterUsuarioId(usuarioIdentificador) {
 }
 
 // 🧠 Helper simples para extrair dados via Regex caso haja HTML da SEFAZ
-function extrairDadosSefaz(html) {
-  const itens = [];
+function extrairDadosSefaz(html: any) {
+  const itens: any[] = [];
   let mercado = '';
 
   if (!html || typeof html !== 'string') {
@@ -56,7 +56,7 @@ function extrairDadosSefaz(html) {
     }
 
     const regexLinhaItem = /<tr[^>]*id=["']Item\s*\d+["'][^>]*>([\s\S]*?)<\/tr>/gi;
-    let match;
+    let match: RegExpExecArray | null;
 
     while ((match = regexLinhaItem.exec(html)) !== null) {
       const blocoTr = match[1] || '';
@@ -80,7 +80,7 @@ function extrairDadosSefaz(html) {
 }
 
 // 🟢 GET: Busca cupons salvos do usuário
-export async function GET(request) {
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const usuarioParam = searchParams.get('usuario');
@@ -100,7 +100,7 @@ export async function GET(request) {
       orderBy: { criadoEm: 'desc' }
     });
 
-    const cuponsFormatados = (cupons || []).map((c) => {
+    const cuponsFormatados = (cupons || []).map((c: any) => {
       let itensParsed = [];
       try {
         itensParsed = typeof c?.itens === 'string' ? JSON.parse(c.itens) : (c?.itens || []);
@@ -120,12 +120,11 @@ export async function GET(request) {
   }
 }
 
-// 🟢 POST: Processa e salva o cupom fiscal (Protegido contra Undefined)
-export async function POST(request) {
+// 🟢 POST: Processa e salva o cupom fiscal
+export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     
-    // Tratamento seguro dos campos
     const usuario = body?.usuario;
     const mercadoDigitado = body?.mercado;
     const url = body?.url || '';
@@ -137,7 +136,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
     }
 
-    let dadosExtraidos = { itens: [], mercado: '' };
+    let dadosExtraidos: { mercado: string; itens: any[] } = { itens: [], mercado: '' };
 
     if (html) {
       dadosExtraidos = extrairDadosSefaz(html);
@@ -153,7 +152,7 @@ export async function POST(request) {
       }
     }
 
-    // Prioriza o nome digitado no formulário
+    // Prioriza o nome fantasia digitado
     const nomeMercadoFinal = (mercadoDigitado && String(mercadoDigitado).trim() !== '') 
       ? String(mercadoDigitado).trim().toUpperCase() 
       : (dadosExtraidos.mercado || 'MERCADO VIA QR CODE').toUpperCase();
@@ -180,14 +179,14 @@ export async function POST(request) {
       itens: dadosExtraidos?.itens || []
     }, { status: 201 });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro detalhado no POST /api/cupons:', error);
     return NextResponse.json({ error: error?.message || 'Erro ao salvar cupom no banco' }, { status: 500 });
   }
 }
 
 // 🟢 DELETE: Remove um cupom salvo
-export async function DELETE(request) {
+export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const idParam = searchParams.get('id');
