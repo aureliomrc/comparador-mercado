@@ -4,45 +4,24 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Helper completo com múltiplos seletores de SEFAZ estaduais
+// Seletor de Fallback para a SEFAZ no servidor
 function extrairItensSefaz(htmlText: string) {
   const $ = cheerio.load(htmlText);
   const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-  // Seletor 1: Padrão SP / RS / PR (Tabela tabResult ou tr_item)
-  $('#tabResult tr, table.tr_item, tr[id^="Item"]').each((_, el) => {
+  $('#tabResult tr, table.tr_item, tr[id^="Item"], div[id*="item"], tr[class*="item"]').each((_, el) => {
     const nome = $(el).find('.txtTit, .txtTit2, .txtTit3, .txtBox, span[class*="nome"], td[class*="produto"]').text().trim().toUpperCase();
     const precoText = $(el).find('.R$ , .valor, .Rval, .valorTotal, span[class*="valor"]').text().replace(',', '.').replace(/[^0-9.]/g, '');
     const qtdText = $(el).find('.Rqtd, .qtd, .quantidade, span[class*="qtd"]').text().replace(',', '.').replace(/[^0-9.]/g, '');
 
     if (nome && nome.length > 2) {
-      const preco = parseFloat(precoText);
-      const qtd = parseFloat(qtdText);
-
       itens.push({
         nome: nome.replace(/\s+/g, ' '),
-        preco: !isNaN(preco) && preco > 0 ? preco : 0,
-        qtd: !isNaN(qtd) && qtd > 0 ? qtd : 1,
+        preco: parseFloat(precoText) || 0,
+        qtd: parseFloat(qtdText) || 1,
       });
     }
   });
-
-  // Seletor 2: Caso o HTML venha em formato de Lista (ul/li) ou divs flex (padrão NFC-e modernizado)
-  if (itens.length === 0) {
-    $('div[id*="item"], div[class*="item"], li[class*="item"]').each((_, el) => {
-      const nome = $(el).find('.txtTit, .nome, span[id*="nome"]').text().trim().toUpperCase();
-      const precoText = $(el).find('.valor, .vUnit, .R$').text().replace(',', '.').replace(/[^0-9.]/g, '');
-      const qtdText = $(el).find('.qtd, .qnt').text().replace(',', '.').replace(/[^0-9.]/g, '');
-
-      if (nome && nome.length > 2) {
-        itens.push({
-          nome: nome.replace(/\s+/g, ' '),
-          preco: parseFloat(precoText) || 0,
-          qtd: parseFloat(qtdText) || 1,
-        });
-      }
-    });
-  }
 
   return itens;
 }
@@ -104,7 +83,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
     }
 
-    // 1. Garante que o usuário existe no banco
+    // 1. Usuário
     let usuarioEncontrado = await prisma.usuario.findFirst({
       where: { nome: nomeUsuario },
     });
@@ -115,51 +94,49 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2. Garante que o mercado existe no banco
+    // 2. Mercado
     let mercadoEncontrado = await prisma.mercado.findFirst({
-      where: { nome: (nomeMercado || 'MERCADO').toUpperCase() },
+      where: { nome: (nomeMercado || 'MERCADO VIA QR CODE').toUpperCase() },
     });
 
     if (!mercadoEncontrado) {
       mercadoEncontrado = await prisma.mercado.create({
-        data: { nome: (nomeMercado || 'MERCADO').toUpperCase() },
+        data: { nome: (nomeMercado || 'MERCADO VIA QR CODE').toUpperCase() },
       });
     }
 
-    // 3. Tenta fazer Scraping via URL se fornecida
-    let itensExtraidos: Array<{ nome: string; preco: number; qtd: number }> = [];
+    // 3. Processamento dos Itens
+    let itensParaSalvar: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-    if (url && url.startsWith('http')) {
+    // Prioridade 1: Utiliza os itens coletados diretamente no cliente
+    if (Array.isArray(itensPayload) && itensPayload.length > 0) {
+      itensParaSalvar = itensPayload;
+    } else if (url && url.startsWith('http')) {
+      // Prioridade 2: Tenta raspagem no servidor caso não venham do cliente
       try {
         const responseSefaz = await fetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
           },
         });
 
         if (responseSefaz.ok) {
           const html = await responseSefaz.text();
-          itensExtraidos = extrairItensSefaz(html);
+          itensParaSalvar = extrairItensSefaz(html);
         }
       } catch (errScraping) {
-        console.error('Falha ao raspar a SEFAZ:', errScraping);
+        console.error('Bloqueio ou falha de raspagem no servidor:', errScraping);
       }
     }
 
-    // Se o scraping não achar itens ou a URL for vazia, usa os itens se forem enviados no payload
-    if (itensExtraidos.length === 0 && Array.isArray(itensPayload) && itensPayload.length > 0) {
-      itensExtraidos = itensPayload;
-    }
-
-    const valorTotalCalculado = itensExtraidos.reduce(
+    const valorTotalCalculado = itensParaSalvar.reduce(
       (acc, item) => acc + (Number(item.preco) * Number(item.qtd)),
       0
     );
 
     const chaveGerada = (url && url.trim().length > 5) ? url : `CUPOM_${Date.now()}`;
 
-    // 4. Cria o CupomFiscal
+    // 4. Salva o Cupom Fiscal
     const novoCupom = await prisma.cupomFiscal.create({
       data: {
         chaveAcesso: chaveGerada,
@@ -169,12 +146,12 @@ export async function POST(req: Request) {
       },
     });
 
-    // 5. Salva os produtos e os itens do cupom
+    // 5. Vincula produtos e histórico
     const itensFormatadosParaFrontend = [];
 
-    for (const item of itensExtraidos) {
+    for (const item of itensParaSalvar) {
       const nomeLimpo = (item.nome || 'PRODUTO').trim().toUpperCase();
-      
+
       let produto = await prisma.produto.findUnique({
         where: { nome: nomeLimpo },
       });
@@ -194,7 +171,6 @@ export async function POST(req: Request) {
         },
       });
 
-      // Registra Histórico de Preços
       await prisma.historicoPrecoPublico.create({
         data: {
           preco: item.preco || 0,

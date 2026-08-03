@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// 🛒 LISTA PADRÃO INICIAL
+// LISTA PADRÃO INICIAL
 const LISTA_PADRAO = [
   {
     nome: 'COMPRAS DO MÊS',
@@ -380,6 +380,41 @@ function MainApp() {
 
     setIsSalvandoCupom(true);
     const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
+    let itensClientSide: Array<{ nome: string; preco: number; qtd: number }> = [];
+
+    // Tenta raspagem Client-side via CORS Proxy para contornar o bloqueio da SEFAZ
+    if (qrUrlInput && qrUrlInput.startsWith('http')) {
+      try {
+        const corsProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(qrUrlInput)}`;
+        const resProxy = await fetch(corsProxyUrl);
+        if (resProxy.ok) {
+          const dataProxy = await resProxy.json();
+          if (dataProxy.contents) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(dataProxy.contents, 'text/html');
+            
+            const elementos = doc.querySelectorAll('#tabResult tr, table.tr_item, tr[id^="Item"], div[id*="item"], tr[class*="item"]');
+            elementos.forEach((el) => {
+              const nomeEl = el.querySelector('.txtTit, .txtTit2, .txtTit3, .txtBox, span[class*="nome"], td[class*="produto"]');
+              const precoEl = el.querySelector('.R$ , .valor, .Rval, .valorTotal, span[class*="valor"]');
+              const qtdEl = el.querySelector('.Rqtd, .qtd, .quantidade, span[class*="qtd"]');
+
+              if (nomeEl && nomeEl.textContent) {
+                const nome = nomeEl.textContent.trim().toUpperCase();
+                const preco = parseFloat((precoEl?.textContent || '').replace(',', '.').replace(/[^0-9.]/g, '')) || 0;
+                const qtd = parseFloat((qtdEl?.textContent || '').replace(',', '.').replace(/[^0-9.]/g, '')) || 1;
+
+                if (nome.length > 2) {
+                  itensClientSide.push({ nome, preco, qtd });
+                }
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Tentativa Client-side falhou, o servidor usará o fallback:', err);
+      }
+    }
 
     try {
       const res = await fetch('/api/cupons', {
@@ -390,7 +425,8 @@ function MainApp() {
           mercado: nomeEstabelecimento,
           url: qrUrlInput.trim(),
           data: new Date().toLocaleDateString('pt-BR'),
-          hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          itens: itensClientSide
         })
       });
 
@@ -400,7 +436,7 @@ function MainApp() {
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
-        alert('✅ Cupom salvo com sucesso!');
+        alert(`✅ Cupom salvo com sucesso! (${cupomSalvo.itens?.length || 0} produtos cadastrados)`);
       } else {
         const errorData = await res.json().catch(() => null);
         alert(`❌ Erro ao salvar: ${errorData?.error || 'Tente novamente'}`);
