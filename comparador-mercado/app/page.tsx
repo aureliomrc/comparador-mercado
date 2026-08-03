@@ -554,7 +554,7 @@ function MainApp() {
   };
 
   const removerItem = async (listaId: string, itemId: string) => {
-    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter(i => i.id !== itemId) } : l));
+    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter((i: any) => i.id !== itemId) } : l));
     await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
   };
 
