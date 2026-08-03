@@ -1,8 +1,8 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// 🛒 LISTA PADRÃO INICIAL (Enviada sem IDs manuais para o Prisma gerar no autoincrement)
+// 🛒 LISTA PADRÃO INICIAL
 const LISTA_PADRAO = [
   {
     nome: 'COMPRAS DO MÊS',
@@ -395,6 +395,7 @@ function MainApp() {
     );
   };
 
+  // FIX: Envio direto ao backend, delegando scraping do HTML para o Node.js
   const processarCupomQrCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
@@ -402,19 +403,6 @@ function MainApp() {
     }
 
     setIsSalvandoCupom(true);
-    let htmlBaixado = '';
-
-    if (qrUrlInput.trim() && qrUrlInput.startsWith('http')) {
-      try {
-        const responseSefaz = await fetch(qrUrlInput.trim());
-        if (responseSefaz.ok) {
-          htmlBaixado = await responseSefaz.text();
-        }
-      } catch (errHtml) {
-        console.log('Download direto pelo browser falhou. O servidor tentará scraping.');
-      }
-    }
-
     const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
 
     try {
@@ -424,8 +412,7 @@ function MainApp() {
         body: JSON.stringify({
           usuario: usuario,
           mercado: nomeEstabelecimento,
-          url: qrUrlInput,
-          html: htmlBaixado,
+          url: qrUrlInput.trim(),
           data: new Date().toLocaleDateString('pt-BR'),
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         })
@@ -437,14 +424,14 @@ function MainApp() {
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
-        alert('✅ Cupom salvo no Neon DB com sucesso!');
+        alert('✅ Cupom salvo com sucesso!');
       } else {
         const errorData = await res.json().catch(() => null);
         alert(`❌ Erro ao salvar: ${errorData?.error || 'Tente novamente'}`);
       }
     } catch (err) {
-      console.error('Erro de conexão:', err);
-      alert('❌ Falha de conexão.');
+      console.error('Erro de conexão ao salvar cupom:', err);
+      alert('❌ Falha na conexão com o servidor.');
     } finally {
       setIsSalvandoCupom(false);
     }
@@ -834,44 +821,47 @@ function MainApp() {
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
 
-  const listaMercadosOrdenados = todosMercadosECupons.map((mercado: any) => {
-    let totalCalculado = 0;
+  // FIX: Otimização via useMemo para evitar travamento de interface
+  const listaMercadosOrdenados = useMemo(() => {
+    return todosMercadosECupons.map((mercado: any) => {
+      let totalCalculado = 0;
 
-    const itensDetalhado = itensDaListaAtiva.map((item: any) => {
-      let precoUn: number;
-      let origemPreco: string;
+      const itensDetalhado = itensDaListaAtiva.map((item: any) => {
+        let precoUn: number;
+        let origemPreco: string;
 
-      if (mercado.isCupom) {
-        const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
-        if (precoCupom !== null) {
-          precoUn = precoCupom;
-          origemPreco = 'cupom';
+        if (mercado.isCupom) {
+          const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
+          if (precoCupom !== null) {
+            precoUn = precoCupom;
+            origemPreco = 'cupom';
+          } else {
+            precoUn = Number(item.precoEstimado) || 8.5;
+            origemPreco = 'sefaz';
+          }
         } else {
-          precoUn = Number(item.precoEstimado) || 8.5;
+          precoUn = (Number(item.precoEstimado) || 8.5) * (mercado.fatorPreco || 1);
           origemPreco = 'sefaz';
         }
-      } else {
-        precoUn = (Number(item.precoEstimado) || 8.5) * (mercado.fatorPreco || 1);
-        origemPreco = 'sefaz';
-      }
 
-      const subtotal = precoUn * (Number(item.qtd) || 1);
-      totalCalculado += subtotal;
+        const subtotal = precoUn * (Number(item.qtd) || 1);
+        totalCalculado += subtotal;
+
+        return {
+          ...item,
+          precoUnCalculado: precoUn.toFixed(2),
+          subtotalCalculado: subtotal.toFixed(2),
+          origemPreco
+        };
+      });
 
       return {
-        ...item,
-        precoUnCalculado: precoUn.toFixed(2),
-        subtotalCalculado: subtotal.toFixed(2),
-        origemPreco
+        ...mercado,
+        totalCalculado: Number(totalCalculado.toFixed(2)),
+        itensDetalhado
       };
-    });
-
-    return {
-      ...mercado,
-      totalCalculado: Number(totalCalculado.toFixed(2)),
-      itensDetalhado
-    };
-  }).sort((a: any, b: any) => a.totalCalculado - b.totalCalculado);
+    }).sort((a: any, b: any) => a.totalCalculado - b.totalCalculado);
+  }, [todosMercadosECupons, itensDaListaAtiva]);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] pb-24 font-sans">
