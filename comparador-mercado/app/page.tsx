@@ -534,7 +534,7 @@ function MainApp() {
       if (l.id === listaId) {
         return {
           ...l,
-          itens: (Array.isArray(l.itens) ? l.itens : []).map(item => {
+            itens: (Array.isArray(l.itens) ? l.itens : []).map((item: any) => {
             if (item.id === itemId) {
               novaQtd = Math.max(1, (item.qtd || 1) + delta);
               return { ...item, qtd: novaQtd };
