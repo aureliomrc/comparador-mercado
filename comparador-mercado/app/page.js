@@ -18,7 +18,7 @@ const LISTA_PADRAO = [
 ];
 
 // Helper para exibição segura de textos/objetos
-const renderTexto = (val: any, fallback = '') => {
+const renderTexto = (val, fallback = '') => {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') {
     return val.nome || val.name || val.title || val.id || JSON.stringify(val);
