@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// 🛒 LISTA PADRÃO EXIBIDA CASO O BANCO DE DADOS NÃO RETORNE LISTAS
+// 🛒 LISTA PADRÃO INICIAL (Usada para clonar no primeiro acesso do usuário)
 const LISTA_PADRAO = [
   {
     id: 'lista_padrao',
@@ -175,12 +175,12 @@ function MainApp() {
   const [aceitouLgpd, setAceitouLgpd] = useState(false);
   const [showTermosModal, setShowTermosModal] = useState(false);
 
-  const [listas, setListas] = useState<any[]>(LISTA_PADRAO);
+  const [listas, setListas] = useState<any[]>([]);
   const [listasAbertas, setListasAbertas] = useState<Record<string, boolean>>({});
   const [novaListaNome, setNovaListaNome] = useState('');
   const [inputsItens, setInputsItens] = useState<Record<string, { nome: string; qtd: number }>>({});
 
-  const [listaParaCompararId, setListaParaCompararId] = useState('lista_padrao');
+  const [listaParaCompararId, setListaParaCompararId] = useState('');
   const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState<any>(null);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [mercadosReais, setMercadosReais] = useState<any[]>([]);
@@ -197,7 +197,7 @@ function MainApp() {
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
-      const res = await fetch('/api/cupons', { cache: 'no-store' });
+      const res = await fetch(`/api/cupons?usuario=${encodeURIComponent(usuario)}`, { cache: 'no-store' });
       if (res.ok) {
         const dados = await res.json();
         setHistoricoCupons(Array.isArray(dados) ? dados : []);
@@ -209,24 +209,45 @@ function MainApp() {
     }
   };
 
+  const inicializarListaPadraoParaUsuario = async (nomeUsuario: string) => {
+    try {
+      const res = await fetch('/api/listas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario: nomeUsuario,
+          nome: 'COMPRAS DO MÊS',
+          itens: LISTA_PADRAO[0].itens
+        })
+      });
+
+      if (res.ok) {
+        const novaLista = await res.json();
+        setListas([novaLista]);
+        setListaParaCompararId(novaLista.id);
+      }
+    } catch (err) {
+      console.error('Erro ao clonar lista padrão:', err);
+    }
+  };
+
   const carregarListasDoBanco = async () => {
+    if (!usuario) return;
     setLoadingListas(true);
     try {
-      const res = await fetch('/api/listas', { cache: 'no-store' });
+      const res = await fetch(`/api/listas?usuario=${encodeURIComponent(usuario)}`, { cache: 'no-store' });
       if (res.ok) {
         const dados = await res.json();
-        const listaTratada = Array.isArray(dados) && dados.length > 0 ? dados : LISTA_PADRAO;
-        setListas(listaTratada);
-        
-        if (listaTratada.length > 0) {
-          setListaParaCompararId(listaTratada[0].id);
+        if (Array.isArray(dados) && dados.length > 0) {
+          setListas(dados);
+          setListaParaCompararId(dados[0].id);
+        } else {
+          // Se o usuário não tem nenhuma lista, clona a padrão para ele no banco
+          await inicializarListaPadraoParaUsuario(usuario);
         }
-      } else {
-        setListas(LISTA_PADRAO);
       }
     } catch (error) {
       console.error('Erro ao conectar com o banco:', error);
-      setListas(LISTA_PADRAO);
     } finally {
       setLoadingListas(false);
     }
@@ -261,8 +282,9 @@ function MainApp() {
   const handleLogout = () => {
     pararScanner();
     setIsLogged(false);
-    setListas(LISTA_PADRAO);
+    setListas([]);
     setHistoricoCupons([]);
+    setUsuario('');
     setScreen('login');
   };
 
@@ -387,7 +409,7 @@ function MainApp() {
           htmlBaixado = await responseSefaz.text();
         }
       } catch (errHtml) {
-        console.log('Download direto pelo browser falhou (CORS/SSL). O servidor tentará fazer o scraping via fallback.');
+        console.log('Download direto pelo browser falhou. O servidor tentará scraping.');
       }
     }
 
@@ -398,6 +420,7 @@ function MainApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          usuario: usuario,
           mercado: nomeEstabelecimento,
           url: qrUrlInput,
           html: htmlBaixado,
@@ -415,12 +438,11 @@ function MainApp() {
         alert('✅ Cupom salvo no Neon DB com sucesso!');
       } else {
         const errorData = await res.json().catch(() => null);
-        const mensagemErro = errorData?.error || errorData?.message || `Status HTTP ${res.status}`;
-        alert(`❌ Erro ao salvar no servidor: ${mensagemErro}`);
+        alert(`❌ Erro ao salvar: ${errorData?.error || 'Tente novamente'}`);
       }
     } catch (err) {
-      console.error('Erro de conexão ao salvar cupom:', err);
-      alert('❌ Falha de conexão. O servidor está offline ou a rota /api/cupons está inacessível.');
+      console.error('Erro de conexão:', err);
+      alert('❌ Falha de conexão.');
     } finally {
       setIsSalvandoCupom(false);
     }
@@ -429,14 +451,14 @@ function MainApp() {
   const excluirCupom = async (id: any) => {
     if (confirm('Deseja excluir este cupom do banco de dados?')) {
       try {
-        const res = await fetch(`/api/cupons?id=${id}`, { method: 'DELETE' });
+        const res = await fetch(`/api/cupons?id=${id}&usuario=${encodeURIComponent(usuario)}`, { method: 'DELETE' });
         if (res.ok) {
-          setHistoricoCupons(prev => prev.filter(c => c.id !== id));
+          setHistoricoCupons(prev => prev.filter((c: any) => c.id !== id));
         } else {
           alert('Erro ao excluir do banco de dados.');
         }
       } catch (err) {
-        console.error('Erro de conexão ao excluir cupom:', err);
+        console.error('Erro ao excluir cupom:', err);
       }
     }
   };
@@ -460,7 +482,10 @@ function MainApp() {
       const res = await fetch('/api/listas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: novaListaNome.trim().toUpperCase() })
+        body: JSON.stringify({ 
+          usuario: usuario,
+          nome: novaListaNome.trim().toUpperCase() 
+        })
       });
 
       if (res.ok) {
@@ -502,6 +527,7 @@ function MainApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           acao: 'ADICIONAR_ITEM',
+          usuario: usuario,
           listaId,
           nome: nomeFormatado,
           qtd: qtdInserida,
@@ -512,7 +538,7 @@ function MainApp() {
 
       if (res.ok) {
         const itemSalvo = await res.json();
-        setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
+        setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map((l: any) => {
           if (l.id === listaId) {
             return { ...l, itens: [...(Array.isArray(l.itens) ? l.itens : []), itemSalvo] };
           }
@@ -530,11 +556,11 @@ function MainApp() {
   const alterarQuantidade = async (listaId: string, itemId: string, delta: number) => {
     let novaQtd = 1;
 
-    setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map(l => {
+    setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map((l: any) => {
       if (l.id === listaId) {
         return {
           ...l,
-            itens: (Array.isArray(l.itens) ? l.itens : []).map((item: any) => {
+          itens: (Array.isArray(l.itens) ? l.itens : []).map((item: any) => {
             if (item.id === itemId) {
               novaQtd = Math.max(1, (item.qtd || 1) + delta);
               return { ...item, qtd: novaQtd };
@@ -549,22 +575,22 @@ function MainApp() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, qtd: novaQtd })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', usuario, itemId, qtd: novaQtd })
     });
   };
 
   const removerItem = async (listaId: string, itemId: string) => {
-    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter((i: any) => i.id !== itemId) } : l));
-    await fetch(`/api/listas?itemId=${itemId}`, { method: 'DELETE' });
+    setListas(prev => (Array.isArray(prev) ? prev : []).map((l: any) => l.id === listaId ? { ...l, itens: (Array.isArray(l.itens) ? l.itens : []).filter((i: any) => i.id !== itemId) } : l));
+    await fetch(`/api/listas?itemId=${itemId}&usuario=${encodeURIComponent(usuario)}`, { method: 'DELETE' });
   };
 
   const toggleCheck = async (listaId: string, itemId: string) => {
     let novoMarcado = false;
-    setListas(prev => (Array.isArray(prev) ? prev : []).map(l => {
+    setListas(prev => (Array.isArray(prev) ? prev : []).map((l: any) => {
       if (l.id === listaId) {
         return {
           ...l,
-         itens: (Array.isArray(l.itens) ? l.itens : []).map((i: any) => {
+          itens: (Array.isArray(l.itens) ? l.itens : []).map((i: any) => {
             if (i.id === itemId) {
               novoMarcado = !i.marcado;
               return { ...i, marcado: novoMarcado };
@@ -579,18 +605,18 @@ function MainApp() {
     await fetch('/api/listas', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', itemId, marcado: novoMarcado })
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', usuario, itemId, marcado: novoMarcado })
     });
   };
 
   const deletarLista = async (id: string) => {
     if (confirm('Deseja realmente excluir esta lista e todos os seus itens?')) {
-      const novasListas = (Array.isArray(listas) ? listas.filter(l => l.id !== id) : []);
-      setListas(novasListas.length > 0 ? novasListas : LISTA_PADRAO);
+      const novasListas = (Array.isArray(listas) ? listas.filter((l: any) => l.id !== id) : []);
+      setListas(novasListas);
       if (listaParaCompararId === id) {
-        setListaParaCompararId(novasListas[0]?.id || 'lista_padrao');
+        setListaParaCompararId(novasListas[0]?.id || '');
       }
-      await fetch(`/api/listas?listaId=${id}`, { method: 'DELETE' });
+      await fetch(`/api/listas?listaId=${id}&usuario=${encodeURIComponent(usuario)}`, { method: 'DELETE' });
     }
   };
 
@@ -724,7 +750,7 @@ function MainApp() {
                     className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#0d824d] cursor-pointer"
                   />
                   <label htmlFor="lgpd" className="text-[11px] text-gray-600 leading-tight">
-                    Li e concordo com o tratamento de dados segundo a Lei Geral de Proteção de Dados (LGPD).{' '}
+                    Li e concordo com o tratamento de dados segundo a LGPD.{' '}
                     <button
                       type="button"
                       onClick={() => setShowTermosModal(true)}
@@ -759,16 +785,10 @@ function MainApp() {
 
                 <div className="overflow-y-auto text-xs text-gray-600 space-y-3 pr-2 flex-1">
                   <p className="font-bold text-gray-800">1. Coleta de Dados</p>
-                  <p>Coletamos seu nome, e-mail e nome de usuário exclusivamente para identificação no aplicativo Tá Quanto? e personalização da sua experiência.</p>
+                  <p>Coletamos seu nome, e-mail e usuário para identificar suas listas de compras no app Tá Quanto?.</p>
                   
                   <p className="font-bold text-gray-800">2. Uso das Listas e Cupons</p>
-                  <p>Os dados de produtos, listas de compras e cupons fiscais bipados são armazenados com segurança para geração de históricos e comparação regional de preços.</p>
-                  
-                  <p className="font-bold text-gray-800">3. Geolocalização</p>
-                  <p>A geolocalização é utilizada pontualmente sob sua permissão para localizar os estabelecimentos mais próximos de você.</p>
-                  
-                  <p className="font-bold text-gray-800">4. Seus Direitos</p>
-                  <p>Conforme previsto na LGPD (Lei nº 13.709/2018), você pode solicitar a exclusão total da sua conta e de todos os seus dados a qualquer momento.</p>
+                  <p>Seus cupons e listas ficam salvos exclusivamente na sua conta do banco de dados.</p>
                 </div>
 
                 <button
@@ -789,7 +809,7 @@ function MainApp() {
     );
   }
 
-  const listaSelecionada = (Array.isArray(listas) ? listas : []).find(l => l.id === listaParaCompararId) || listas[0] || LISTA_PADRAO[0];
+  const listaSelecionada = (Array.isArray(listas) ? listas : []).find((l: any) => l.id === listaParaCompararId) || listas[0];
   const itensDaListaAtiva = Array.isArray(listaSelecionada?.itens) ? listaSelecionada.itens : [];
 
   const baseMercados = (Array.isArray(mercadosReais) && mercadosReais.length > 0) ? mercadosReais : [
@@ -798,7 +818,7 @@ function MainApp() {
     { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
   ];
 
-  const cuponsFormatadosParaMercado = (Array.isArray(historicoCupons) ? historicoCupons : []).map(c => ({
+  const cuponsFormatadosParaMercado = (Array.isArray(historicoCupons) ? historicoCupons : []).map((c: any) => ({
     id: `cupom_${c.id}`,
     idOriginalCupom: c.id,
     nome: renderTexto(c.mercado, 'MERCADO VIA CUPOM'),
@@ -811,7 +831,7 @@ function MainApp() {
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
 
-  const listaMercadosOrdenados = todosMercadosECupons.map(mercado => {
+  const listaMercadosOrdenados = todosMercadosECupons.map((mercado: any) => {
     let totalCalculado = 0;
 
     const itensDetalhado = itensDaListaAtiva.map((item: any) => {
@@ -848,7 +868,7 @@ function MainApp() {
       totalCalculado: Number(totalCalculado.toFixed(2)),
       itensDetalhado
     };
-  }).sort((a, b) => a.totalCalculado - b.totalCalculado);
+  }).sort((a: any, b: any) => a.totalCalculado - b.totalCalculado);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] pb-24 font-sans">
@@ -902,14 +922,14 @@ function MainApp() {
 
               {loadingListas ? (
                 <div className="bg-white p-6 rounded-2xl text-center border">
-                  <p className="text-xs font-bold text-gray-500">Carregando listas...</p>
+                  <p className="text-xs font-bold text-gray-500">Carregando listas do seu perfil...</p>
                 </div>
               ) : listas.length === 0 ? (
                 <div className="bg-white p-6 rounded-2xl text-center border space-y-1">
-                  <p className="text-xs font-bold text-gray-700">Nenhuma lista encontrada.</p>
+                  <p className="text-xs font-bold text-gray-700">Nenhuma lista criada.</p>
                   <p className="text-[11px] text-gray-400">Crie uma nova lista acima para começar!</p>
                 </div>
-              ) : (Array.isArray(listas) ? listas : []).map((lista) => {
+              ) : (Array.isArray(listas) ? listas : []).map((lista: any) => {
                 const estaAberta = !!listasAbertas[lista.id];
                 const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
                 const itensLista = Array.isArray(lista.itens) ? lista.itens : [];
@@ -1018,7 +1038,7 @@ function MainApp() {
                   onChange={(e) => setListaParaCompararId(e.target.value)}
                   className="w-full bg-white border border-gray-300 text-gray-800 font-bold text-xs rounded-xl px-3 py-2.5 focus:outline-none"
                 >
-                  {(Array.isArray(listas) ? listas : []).map(l => (
+                  {(Array.isArray(listas) ? listas : []).map((l: any) => (
                     <option key={l.id} value={l.id}>
                       {renderTexto(l.nome)} ({l.itens?.length || 0} itens)
                     </option>
@@ -1039,11 +1059,11 @@ function MainApp() {
               <div className="bg-white p-8 rounded-2xl text-center border space-y-2">
                 <span className="text-3xl">📊</span>
                 <p className="text-xs font-bold text-gray-700">Sua lista selecionada está vazia.</p>
-                <p className="text-[11px] text-gray-400">Adicione itens na aba "Listas" para ver o comparativo de preços.</p>
+                <p className="text-[11px] text-gray-400">Adicione itens na aba "Listas" para ver a comparação de preços.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {listaMercadosOrdenados.map((mercado, idx) => {
+                {listaMercadosOrdenados.map((mercado: any, idx: number) => {
                   const estaAbertoDetalhe = mercadoSelecionadoDetalhe === mercado.id;
                   const eOMaisBarato = idx === 0;
 
@@ -1177,7 +1197,7 @@ function MainApp() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {(Array.isArray(historicoCupons) ? historicoCupons : []).map((cupom) => {
+                  {(Array.isArray(historicoCupons) ? historicoCupons : []).map((cupom: any) => {
                     const estaAberto = !!cuponsAbertos[cupom.id];
                     const itensDoCupom = obterItensCupom(cupom);
 
@@ -1226,7 +1246,7 @@ function MainApp() {
 
                             {itensDoCupom.length === 0 ? (
                               <p className="text-xs font-bold text-gray-500 italic p-2 bg-white rounded-xl border border-dashed text-center">
-                                Nenhum item foi extraído deste cupom ou a lista no banco está vazia.
+                                Nenhum item foi extraído deste cupom.
                               </p>
                             ) : (
                               <div className="divide-y divide-purple-100 bg-white rounded-xl border border-purple-200 overflow-hidden">
