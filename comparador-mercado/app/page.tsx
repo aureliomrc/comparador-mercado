@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
 // 🛒 LISTA PADRÃO INICIAL
@@ -16,7 +16,6 @@ const LISTA_PADRAO = [
   }
 ];
 
-// Helper para exibição segura de textos/objetos
 const renderTexto = (val: any, fallback = '') => {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') {
@@ -25,19 +24,12 @@ const renderTexto = (val: any, fallback = '') => {
   return String(val);
 };
 
-// Helper para extrair itens do cupom
 const obterItensCupom = (cupom: any) => {
   if (!cupom) return [];
-
   let objetoCupom = cupom;
   if (typeof cupom === 'string') {
-    try {
-      objetoCupom = JSON.parse(cupom);
-    } catch (e) {
-      return [];
-    }
+    try { objetoCupom = JSON.parse(cupom); } catch (e) { return []; }
   }
-
   let rawItens = 
     objetoCupom.itens || 
     objetoCupom.items || 
@@ -49,18 +41,11 @@ const obterItensCupom = (cupom: any) => {
     [];
 
   if (typeof rawItens === 'string') {
-    try {
-      rawItens = JSON.parse(rawItens);
-    } catch (e) {
-      console.error('Erro ao converter JSON dos itens:', e);
-      return [];
-    }
+    try { rawItens = JSON.parse(rawItens); } catch (e) { return []; }
   }
-
   return Array.isArray(rawItens) ? rawItens : [];
 };
 
-// Dicionário de abreviações de supermercado
 const DICIONARIO_ABREVIACOES: Record<string, string> = {
   'int': 'integral', 'integ': 'integral', 'desm': 'desnatado', 'semid': 'semidesnatado',
   'lt': 'leite', 'lte': 'leite', 'tp': 'tetrapack', 'cx': 'caixa', 'pote': 'pote',
@@ -224,10 +209,6 @@ function MainApp() {
         const novaLista = await res.json();
         setListas([novaLista]);
         setListaParaCompararId(novaLista.id);
-      } else {
-        const errJson = await res.json().catch(() => null);
-        console.error('Erro na resposta do servidor:', errJson);
-        alert(`Não foi possível criar a lista padrão: ${errJson?.error || 'Erro interno'}`);
       }
     } catch (err) {
       console.error('Erro ao clonar lista padrão:', err);
@@ -332,10 +313,6 @@ function MainApp() {
     }
   };
 
-  const abrirModalQr = () => {
-    setShowQrModal(true);
-  };
-
   const fecharModalQr = () => {
     pararScanner();
     setShowQrModal(false);
@@ -389,13 +366,12 @@ function MainApp() {
       },
       (error) => {
         console.error('Erro de GPS:', error);
-        alert('Não foi possível obter sua localização. Verifique as permissões.');
+        alert('Não foi possível obter sua localização.');
         setLoadingGeo(false);
       }
     );
   };
 
-  // FIX: Envio direto ao backend, delegando scraping do HTML para o Node.js
   const processarCupomQrCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
@@ -610,7 +586,7 @@ function MainApp() {
     }
   };
 
-  if (screen === 'login' && !isLogged) {
+  if (!isLogged) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0066a1] p-4 font-sans">
         <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl space-y-6">
@@ -821,47 +797,44 @@ function MainApp() {
 
   const todosMercadosECupons = [...cuponsFormatadosParaMercado, ...baseMercados];
 
-  // FIX: Otimização via useMemo para evitar travamento de interface
-  const listaMercadosOrdenados = useMemo(() => {
-    return todosMercadosECupons.map((mercado: any) => {
-      let totalCalculado = 0;
+  const listaMercadosOrdenados = todosMercadosECupons.map((mercado: any) => {
+    let totalCalculado = 0;
 
-      const itensDetalhado = itensDaListaAtiva.map((item: any) => {
-        let precoUn: number;
-        let origemPreco: string;
+    const itensDetalhado = itensDaListaAtiva.map((item: any) => {
+      let precoUn: number;
+      let origemPreco: string;
 
-        if (mercado.isCupom) {
-          const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
-          if (precoCupom !== null) {
-            precoUn = precoCupom;
-            origemPreco = 'cupom';
-          } else {
-            precoUn = Number(item.precoEstimado) || 8.5;
-            origemPreco = 'sefaz';
-          }
+      if (mercado.isCupom) {
+        const precoCupom = buscarPrecoNoCupom(item.nome, mercado.itensCupom);
+        if (precoCupom !== null) {
+          precoUn = precoCupom;
+          origemPreco = 'cupom';
         } else {
-          precoUn = (Number(item.precoEstimado) || 8.5) * (mercado.fatorPreco || 1);
+          precoUn = Number(item.precoEstimado) || 8.5;
           origemPreco = 'sefaz';
         }
+      } else {
+        precoUn = (Number(item.precoEstimado) || 8.5) * (mercado.fatorPreco || 1);
+        origemPreco = 'sefaz';
+      }
 
-        const subtotal = precoUn * (Number(item.qtd) || 1);
-        totalCalculado += subtotal;
-
-        return {
-          ...item,
-          precoUnCalculado: precoUn.toFixed(2),
-          subtotalCalculado: subtotal.toFixed(2),
-          origemPreco
-        };
-      });
+      const subtotal = precoUn * (Number(item.qtd) || 1);
+      totalCalculado += subtotal;
 
       return {
-        ...mercado,
-        totalCalculado: Number(totalCalculado.toFixed(2)),
-        itensDetalhado
+        ...item,
+        precoUnCalculado: precoUn.toFixed(2),
+        subtotalCalculado: subtotal.toFixed(2),
+        origemPreco
       };
-    }).sort((a: any, b: any) => a.totalCalculado - b.totalCalculado);
-  }, [todosMercadosECupons, itensDaListaAtiva]);
+    });
+
+    return {
+      ...mercado,
+      totalCalculado: Number(totalCalculado.toFixed(2)),
+      itensDetalhado
+    };
+  }).sort((a: any, b: any) => a.totalCalculado - b.totalCalculado);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] pb-24 font-sans">
@@ -1161,7 +1134,7 @@ function MainApp() {
               </div>
 
               <button
-                onClick={abrirModalQr}
+                onClick={() => setShowQrModal(true)}
                 className="w-full bg-purple-500 hover:bg-purple-400 text-white font-extrabold text-xs py-3 rounded-2xl shadow flex items-center justify-center gap-2 transition-all"
               >
                 📷 BIPAR NOVO QR CODE
@@ -1234,7 +1207,6 @@ function MainApp() {
                           <div className="bg-purple-50/50 p-3.5 border-t border-purple-100 space-y-2">
                             <h5 className="text-[10px] font-extrabold text-purple-900 uppercase tracking-wider flex justify-between">
                               <span>Produtos extraídos da SEFAZ ({itensDoCupom.length}):</span>
-                              <span className="text-[9px] text-purple-600 font-normal">Exibição exata do banco</span>
                             </h5>
 
                             {itensDoCupom.length === 0 ? (
