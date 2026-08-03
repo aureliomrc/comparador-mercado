@@ -564,7 +564,7 @@ function MainApp() {
       if (l.id === listaId) {
         return {
           ...l,
-          itens: (Array.isArray(l.itens) ? l.itens : []).map(i => {
+         itens: (Array.isArray(l.itens) ? l.itens : []).map((i: any) => {
             if (i.id === itemId) {
               novoMarcado = !i.marcado;
               return { ...i, marcado: novoMarcado };
