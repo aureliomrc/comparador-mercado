@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // 📌 GET: Lista padrão para todos + listas do usuário ativo
-export async function GET(request: Request) {
+export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const usuarioIdParam = searchParams.get('usuarioId');
@@ -65,18 +65,18 @@ export async function GET(request: Request) {
 }
 
 // 📌 POST: Criar Nova Lista
-export async function POST(request: Request) {
+export async function POST(request) {
   try {
     const body = await request.json();
     const { nome, usuarioId } = body;
 
-    if (!nome || !nome.trim()) {
+    if (!nome || !String(nome).trim()) {
       return NextResponse.json({ error: 'Nome é obrigatório' }, { status: 400 });
     }
 
     const novaLista = await prisma.lista.create({
       data: {
-        nome: nome.trim().toUpperCase(),
+        nome: String(nome).trim().toUpperCase(),
         isPrincipal: false,
         usuarioId: usuarioId ? Number(usuarioId) : null
       },
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
 }
 
 // 📌 PUT: Adicionar ou Atualizar Itens na Lista
-export async function PUT(request: Request) {
+export async function PUT(request) {
   try {
     const body = await request.json();
     const acao = body.acao || body.ação;
@@ -136,7 +136,7 @@ export async function PUT(request: Request) {
         return NextResponse.json({ error: 'ID do item é obrigatório.' }, { status: 400 });
       }
 
-      const dadosAtualizacao: any = {};
+      const dadosAtualizacao = {};
       if (qtd !== undefined) dadosAtualizacao.qtd = parseInt(qtd);
       if (marcado !== undefined) dadosAtualizacao.marcado = Boolean(marcado);
 
@@ -163,7 +163,7 @@ export async function PUT(request: Request) {
 }
 
 // 📌 DELETE: Remover Lista ou Item
-export async function DELETE(request: Request) {
+export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
     const listaId = searchParams.get('listaId');

@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import * as cheerio from 'cheerio';
 
-function extrairNumero(texto: string | null | undefined): number {
+export const runtime = 'nodejs';
+
+function extrairNumero(texto) {
   if (!texto) return 0;
-  let limpo = texto.replace(/[^\d.,]/g, '').trim();
+  let limpo = String(texto).replace(/[^\d.,]/g, '').trim();
   if (!limpo) return 0;
 
   if (limpo.includes(',')) {
@@ -54,13 +56,13 @@ export async function GET() {
 }
 
 // POST: Salva o cupom e extrai os itens para o Neon DB
-export async function POST(request: Request) {
+export async function POST(request) {
   try {
     const body = await request.json();
     const qrUrl = body.url ? String(body.url).trim() : '';
     let htmlContent = body.html || '';
 
-    let produtosExtraidos: Array<{ nome: string; preco: number; qtd: number }> = [];
+    let produtosExtraidos = [];
     let nomeMercadoSefaz = body.mercado ? String(body.mercado).trim().toUpperCase() : 'SUPERMERCADO';
 
     // Download do HTML via servidor caso o browser não tenha enviado
@@ -136,7 +138,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // Chave única para previnir erro no @unique do banco
+    // Chave única para prevenir erro no @unique do banco
     const chaveAcessoFinal = qrUrl 
       ? `${qrUrl}_${Date.now()}` 
       : `CUPOM_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -166,7 +168,6 @@ export async function POST(request: Request) {
       });
 
       for (const item of produtosExtraidos) {
-        // USO DO UPSERT: Impede a quebra de transação caso o produto já exista
         const produto = await tx.produto.upsert({
           where: { nome: item.nome },
           update: {},
@@ -214,7 +215,7 @@ export async function POST(request: Request) {
 }
 
 // DELETE: Deleta cupom do Neon DB
-export async function DELETE(request: Request) {
+export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
