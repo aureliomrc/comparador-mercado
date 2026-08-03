@@ -1,76 +1,118 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma'; // Ou onde estiver configurado o seu PrismaClient
+import { prisma } from '@/lib/prisma';
 
-// GET: Busca somente as listas do usuário especificado
-export async function GET(request: Request) {
+// Helper para converter ou encontrar o ID do usuário (como número)
+async function obterUsuarioId(usuarioIdentificador) {
+  if (!usuarioIdentificador) return null;
+
+  // Se já for um número exato
+  if (!isNaN(usuarioIdentificador)) {
+    return parseInt(usuarioIdentificador, 10);
+  }
+
+  // Se o frontend enviar nome de usuário ou e-mail, busca ou cria na tabela Usuario
+  let usr = await prisma.usuario.findFirst({
+    where: {
+      OR: [
+        { nome: String(usuarioIdentificador) },
+        { email: String(usuarioIdentificador) }
+      ]
+    }
+  });
+
+  if (!usr) {
+    usr = await prisma.usuario.create({
+      data: { nome: String(usuarioIdentificador) }
+    });
+  }
+
+  return usr.id;
+}
+
+// 🟢 GET: Busca listas filtrando pelo ID do usuário
+export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const usuario = searchParams.get('usuario');
+  const usuarioParam = searchParams.get('usuario');
 
-  if (!usuario) {
+  if (!usuarioParam) {
     return NextResponse.json({ error: 'Usuário não informado' }, { status: 400 });
   }
 
   try {
+    const usrId = await obterUsuarioId(usuarioParam);
+
     const listas = await prisma.lista.findMany({
-      where: { usuario },
+      where: { usuarioId: usrId },
       include: { itens: true },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { criadoEm: 'desc' }
     });
+
     return NextResponse.json(listas);
   } catch (error) {
-    console.error('Erro ao buscar listas:', error);
-    return NextResponse.json({ error: 'Erro interno ao buscar listas' }, { status: 500 });
+    console.error('Erro no GET /api/listas:', error);
+    return NextResponse.json({ error: 'Erro ao buscar listas' }, { status: 500 });
   }
 }
 
-// POST: Cria uma nova lista vinculada ao usuário (incluindo a cópia da lista padrão)
-export async function POST(request: Request) {
+// 🟢 POST: Cria uma nova lista ou clona a lista padrão para o usuário
+export async function POST(request) {
   try {
     const body = await request.json();
     const { usuario, nome, itens } = body;
 
     if (!usuario || !nome) {
-      return NextResponse.json({ error: 'Campos obrigatórios ausentes' }, { status: 400 });
+      return NextResponse.json({ error: 'Usuário e nome da lista são obrigatórios' }, { status: 400 });
     }
+
+    const usrId = await obterUsuarioId(usuario);
+
+    // Prepara os itens da relação ItemLista
+    const itensParaCriar = Array.isArray(itens) ? itens.map((item) => ({
+      nome: String(item.nome || '').toUpperCase(),
+      qtd: parseInt(item.qtd, 10) || 1,
+      marcado: Boolean(item.marcado),
+      precoEstimado: item.precoEstimado ? parseFloat(item.precoEstimado) : 0,
+      marca: String(item.marca || '')
+    })) : [];
 
     const novaLista = await prisma.lista.create({
       data: {
-        usuario,
-        nome,
-        itens: itens && Array.isArray(itens) ? {
-          create: itens.map((item: any) => ({
-            nome: item.nome,
-            qtd: item.qtd || 1,
-            marcado: Boolean(item.marcado),
-            precoEstimado: Number(item.precoEstimado) || 0,
-            marca: item.marca || ''
-          }))
-        } : undefined
+        nome: String(nome).toUpperCase(),
+        usuarioId: usrId,
+        ...(itensParaCriar.length > 0 && {
+          itens: {
+            create: itensParaCriar
+          }
+        })
       },
       include: { itens: true }
     });
 
     return NextResponse.json(novaLista, { status: 201 });
   } catch (error) {
-    console.error('Erro ao criar lista:', error);
-    return NextResponse.json({ error: 'Erro interno ao criar lista' }, { status: 500 });
+    console.error('Erro detalhado no POST /api/listas:', error);
+    return NextResponse.json({ error: error.message || 'Erro ao criar lista' }, { status: 500 });
   }
 }
 
-// PUT: Adiciona ou atualiza um item garantindo o escopo do usuário
-export async function PUT(request: Request) {
+// 🟢 PUT: Adiciona ou atualiza itens na tabela ItemLista
+export async function PUT(request) {
   try {
     const body = await request.json();
     const { acao, listaId, itemId, nome, qtd, precoEstimado, marca, marcado } = body;
 
     if (acao === 'ADICIONAR_ITEM') {
-      const novoItem = await prisma.item.create({
+      if (!listaId || !nome) {
+        return NextResponse.json({ error: 'listaId e nome são obrigatórios' }, { status: 400 });
+      }
+
+      const novoItem = await prisma.itemLista.create({
         data: {
-          listaId,
-          nome,
-          qtd: Number(qtd) || 1,
-          precoEstimado: Number(precoEstimado) || 0,
-          marca: marca || '',
+          listaId: parseInt(listaId, 10),
+          nome: String(nome).toUpperCase(),
+          qtd: parseInt(qtd, 10) || 1,
+          precoEstimado: precoEstimado ? parseFloat(precoEstimado) : 0,
+          marca: String(marca || ''),
           marcado: false
         }
       });
@@ -78,10 +120,14 @@ export async function PUT(request: Request) {
     }
 
     if (acao === 'ATUALIZAR_ITEM') {
-      const itemAtualizado = await prisma.item.update({
-        where: { id: itemId },
+      if (!itemId) {
+        return NextResponse.json({ error: 'itemId é obrigatório' }, { status: 400 });
+      }
+
+      const itemAtualizado = await prisma.itemLista.update({
+        where: { id: parseInt(itemId, 10) },
         data: {
-          ...(qtd !== undefined && { qtd: Number(qtd) }),
+          ...(qtd !== undefined && { qtd: parseInt(qtd, 10) }),
           ...(marcado !== undefined && { marcado: Boolean(marcado) })
         }
       });
@@ -90,31 +136,35 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ error: 'Ação não reconhecida' }, { status: 400 });
   } catch (error) {
-    console.error('Erro ao atualizar item:', error);
-    return NextResponse.json({ error: 'Erro interno ao atualizar item' }, { status: 500 });
+    console.error('Erro no PUT /api/listas:', error);
+    return NextResponse.json({ error: 'Erro ao atualizar item' }, { status: 500 });
   }
 }
 
-// DELETE: Remove um item ou uma lista inteira
-export async function DELETE(request: Request) {
+// 🟢 DELETE: Remove item ou lista do banco
+export async function DELETE(request) {
   const { searchParams } = new URL(request.url);
   const listaId = searchParams.get('listaId');
   const itemId = searchParams.get('itemId');
 
   try {
     if (listaId) {
-      await prisma.lista.delete({ where: { id: listaId } });
+      await prisma.lista.delete({
+        where: { id: parseInt(listaId, 10) }
+      });
       return NextResponse.json({ success: true });
     }
 
     if (itemId) {
-      await prisma.item.delete({ where: { id: itemId } });
+      await prisma.itemLista.delete({
+        where: { id: parseInt(itemId, 10) }
+      });
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'ID não fornecido' }, { status: 400 });
+    return NextResponse.json({ error: 'Nenhum ID informado' }, { status: 400 });
   } catch (error) {
-    console.error('Erro ao excluir:', error);
-    return NextResponse.json({ error: 'Erro ao excluir elemento' }, { status: 500 });
+    console.error('Erro no DELETE /api/listas:', error);
+    return NextResponse.json({ error: 'Erro ao deletar' }, { status: 500 });
   }
 }
