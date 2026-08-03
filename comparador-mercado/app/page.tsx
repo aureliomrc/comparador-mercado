@@ -18,7 +18,7 @@ const LISTA_PADRAO = [
 ];
 
 // Helper para exibição segura de textos/objetos
-const renderTexto = (val, fallback = '') => {
+const renderTexto = (val: any, fallback = '') => {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') {
     return val.nome || val.name || val.title || val.id || JSON.stringify(val);
@@ -27,7 +27,7 @@ const renderTexto = (val, fallback = '') => {
 };
 
 // Helper para extrair itens do cupom
-const obterItensCupom = (cupom) => {
+const obterItensCupom = (cupom: any) => {
   if (!cupom) return [];
 
   let objetoCupom = cupom;
@@ -72,7 +72,7 @@ const DICIONARIO_ABREVIACOES: Record<string, string> = {
   'soj': 'soja', 'farn': 'farinha', 'trg': 'trigo'
 };
 
-const normalizarETraduzirTexto = (texto) => {
+const normalizarETraduzirTexto = (texto: any) => {
   if (!texto) return [];
   const palavrasLimpas = String(texto)
     .normalize("NFD")
@@ -204,7 +204,7 @@ function MainApp() {
       }
     } catch (error) {
       console.error('Erro ao buscar cupons do banco:', error);
-    } finally {
+    } fontally {
       setLoadingCupons(false);
     }
   };
@@ -371,7 +371,6 @@ function MainApp() {
     );
   };
 
-  // 🔥 PROCESSAMENTO COM BAIXA DIRETA PELO NAVEGADOR DO CELULAR (ANTI-BLOQUEIO SEFAZ)
   const processarCupomQrCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nomeFantasiaInput.trim() && !qrUrlInput.trim()) {
@@ -381,7 +380,6 @@ function MainApp() {
     setIsSalvandoCupom(true);
     let htmlBaixado = '';
 
-    // 1. Tenta fazer o download do HTML pelo próprio celular se houver URL do QR Code
     if (qrUrlInput.trim() && qrUrlInput.startsWith('http')) {
       try {
         const responseSefaz = await fetch(qrUrlInput.trim());
@@ -402,7 +400,7 @@ function MainApp() {
         body: JSON.stringify({
           mercado: nomeEstabelecimento,
           url: qrUrlInput,
-          html: htmlBaixado, // Envia o HTML pronto capturado no celular
+          html: htmlBaixado,
           data: new Date().toLocaleDateString('pt-BR'),
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         })
@@ -1174,7 +1172,7 @@ function MainApp() {
               ) : historicoCupons.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl text-center border space-y-1">
                   <span className="text-3xl">📜</span>
-                  <p className="text-xs font-bold text-gray-700">Nenum cupom bipado até o momento.</p>
+                  <p className="text-xs font-bold text-gray-700">Nenhum cupom bipado até o momento.</p>
                   <p className="text-[11px] text-gray-400">Ao escaneá-los, eles serão salvos diretamente na sua conta!</p>
                 </div>
               ) : (
