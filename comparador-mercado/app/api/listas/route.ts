@@ -1,35 +1,47 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-// Helper para converter ou encontrar o ID do usuário (como número)
-async function obterUsuarioId(usuarioIdentificador: any) {
+// 🛡️ Helper à prova de falhas para garantir que o Usuário EXISTE no banco antes de relacionar (Evita FK Error)
+async function obterUsuarioId(usuarioIdentificador: any): Promise<number | null> {
   if (!usuarioIdentificador) return null;
 
-  // Se o identificador for numérico
-  if (!isNaN(usuarioIdentificador)) {
-    return parseInt(String(usuarioIdentificador), 10);
-  }
-
   const termo = String(usuarioIdentificador).trim();
+  if (!termo) return null;
 
-  // Busca se já existe um usuário com este nome ou email
-  let usr = await prisma.usuario.findFirst({
-    where: {
-      OR: [
-        { nome: termo },
-        { email: termo }
-      ]
+  try {
+    // 1. Tenta buscar primeiro pelo ID numérico (se já for um ID direto do banco)
+    const idNumerico = Number(termo);
+    if (!isNaN(idNumerico) && Number.isInteger(idNumerico) && idNumerico > 0) {
+      const usuarioPorId = await prisma.usuario.findUnique({
+        where: { id: idNumerico }
+      });
+      if (usuarioPorId) return usuarioPorId.id;
     }
-  });
 
-  // Se não existir, cria um novo usuário no banco
-  if (!usr) {
-    usr = await prisma.usuario.create({
-      data: { nome: termo }
+    // 2. Busca por nome de usuário ou e-mail na tabela Usuario
+    let usr = await prisma.usuario.findFirst({
+      where: {
+        OR: [
+          { nome: termo },
+          { email: termo }
+        ]
+      }
     });
-  }
 
-  return usr.id;
+    // 3. Se NÃO existir na tabela, CRIA O USUÁRIO para gerar uma Foreign Key (id) válida!
+    if (!usr) {
+      usr = await prisma.usuario.create({
+        data: {
+          nome: termo
+        }
+      });
+    }
+
+    return usr ? usr.id : null;
+  } catch (err) {
+    console.error('Erro ao resolver usuarioId:', err);
+    return null;
+  }
 }
 
 // 🟢 GET: Busca listas do usuário
@@ -61,7 +73,7 @@ export async function GET(request: Request) {
   }
 }
 
-// 🟢 POST: Cria uma nova lista (ou salva a lista padrão clonada)
+// 🟢 POST: Cria uma nova lista ou salva a lista padrão clonada
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -71,9 +83,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Usuário e nome da lista são obrigatórios' }, { status: 400 });
     }
 
+    // Busca/Cria o usuário no banco para obter o ID correto
     const usrId = await obterUsuarioId(usuario);
 
-    // Formata cada item descartando IDs em String e ajustando os tipos para o PostgreSQL
+    if (!usrId) {
+      return NextResponse.json({ error: 'Não foi possível associar a lista a um usuário válido.' }, { status: 400 });
+    }
+
+    // Limpa e mapeia os itens descartando qualquer ID string antigo enviado pelo frontend
     const itensParaCriar = Array.isArray(itens) ? itens.map((item: any) => ({
       nome: String(item.nome || '').toUpperCase(),
       qtd: parseInt(String(item.qtd || 1), 10),
@@ -82,6 +99,7 @@ export async function POST(request: Request) {
       marca: String(item.marca || '')
     })) : [];
 
+    // Cria a lista no PostgreSQL garantindo usuarioId
     const novaLista = await prisma.lista.create({
       data: {
         nome: String(nome).toUpperCase(),
@@ -102,7 +120,7 @@ export async function POST(request: Request) {
   }
 }
 
-// 🟢 PUT: Adiciona ou atualiza itens
+// 🟢 PUT: Adiciona ou atualiza itens em uma lista
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
