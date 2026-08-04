@@ -21,7 +21,7 @@ async function extrairProdutosDaSefazServer(urlQr: string) {
     const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
     // Captura linhas de tabela no HTML da SEFAZ
-    const rxLinhas = /<tr[^>]*>(.*?)<\/tr>/gis;
+   const rxLinhas = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let matchLinha;
 
     while ((matchLinha = rxLinhas.exec(htmlText)) !== null) {
