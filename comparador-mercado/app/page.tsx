@@ -162,7 +162,7 @@ function MainApp() {
   const [listas, setListas] = useState<any[]>([]);
   const [listasAbertas, setListasAbertas] = useState<Record<string, boolean>>({});
   const [novaListaNome, setNovaListaNome] = useState('');
-  const [inputsItens, setInputsItens] = useState<Record<string, { nome: string; qtd: number }>>({});
+  const [inputsItens, setInputsItens] = useState<Record<string, { nome: string; qtd: number; precoEstimado: string }>>({});
 
   const [listaParaCompararId, setListaParaCompararId] = useState<any>('');
   const [mercadoSelecionadoDetalhe, setMercadoSelecionadoDetalhe] = useState<any>(null);
@@ -179,18 +179,16 @@ function MainApp() {
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef<Html5Qrcode | null>(null);
 
-  // Carrega cupons do usuário e também TODOS os cupons cadastrados da comunidade
+  // Carrega cupons do usuário e cupons da comunidade
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
-      // 1. Puxa os cupons do usuário logado
       const resUser = await fetch(`/api/cupons?usuario=${encodeURIComponent(usuario)}`, { cache: 'no-store' });
       if (resUser.ok) {
         const dados = await resUser.json();
         setHistoricoCupons(Array.isArray(dados) ? dados : []);
       }
 
-      // 2. Puxa TODOS os cupons de todos os usuários para a Comparação
       const resTodos = await fetch(`/api/cupons?todos=true`, { cache: 'no-store' });
       if (resTodos.ok) {
         const dadosTodos = await resTodos.json();
@@ -370,7 +368,7 @@ function MainApp() {
           }
         } catch (err) {
           console.error('Erro ao buscar mercados via GPS:', err);
-        } finally {
+        } fontally {
           setLoadingGeo(false);
         }
       },
@@ -413,7 +411,6 @@ function MainApp() {
         setNomeFantasiaInput('');
         fecharModalQr();
 
-        // Recarrega do banco tanto os seus cupons quanto os comunitários
         await carregarCuponsDoBanco();
 
         const totalItens = cupomSalvo.itens?.length || 0;
@@ -493,7 +490,8 @@ function MainApp() {
       ...prev,
       [listaId]: {
         nome: campo === 'nome' ? valor : prev[listaId]?.nome || '',
-        qtd: campo === 'qtd' ? valor : prev[listaId]?.qtd || 1
+        qtd: campo === 'qtd' ? valor : prev[listaId]?.qtd || 1,
+        precoEstimado: campo === 'precoEstimado' ? valor : prev[listaId]?.precoEstimado || ''
       }
     }));
   };
@@ -505,7 +503,11 @@ function MainApp() {
 
     const nomeFormatado = input.nome.trim().toUpperCase();
     const qtdInserida = Number(input.qtd) || 1;
-    const precoEstimadoBase = (Math.random() * 15 + 3).toFixed(2);
+    // Se o usuário informar um preço manual, usamos ele; senão, calcula um padrão
+    const precoEstimadoBase = input.precoEstimado && !isNaN(Number(input.precoEstimado))
+      ? Number(input.precoEstimado).toFixed(2)
+      : (Math.random() * 15 + 3).toFixed(2);
+      
     const marcaCalculada = obterMarcaParaItem(nomeFormatado);
 
     try {
@@ -531,13 +533,37 @@ function MainApp() {
           }
           return l;
         }));
-        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1 } }));
+        setInputsItens(prev => ({ ...prev, [listaId]: { nome: '', qtd: 1, precoEstimado: '' } }));
       } else {
         alert('Erro ao salvar item no banco de dados.');
       }
     } catch (err) {
       console.error('Erro ao adicionar item:', err);
     }
+  };
+
+  // EDIÇÃO DIRETA DO PREÇO DO ITEM NA LISTA
+  const atualizarPrecoItem = async (listaId: any, itemId: any, novoPreco: number) => {
+    setListas(prevListas => (Array.isArray(prevListas) ? prevListas : []).map((l: any) => {
+      if (l.id === listaId) {
+        return {
+          ...l,
+          itens: (Array.isArray(l.itens) ? l.itens : []).map((item: any) => {
+            if (item.id === itemId) {
+              return { ...item, precoEstimado: novoPreco };
+            }
+            return item;
+          })
+        };
+      }
+      return l;
+    }));
+
+    await fetch('/api/listas', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao: 'ATUALIZAR_ITEM', usuario, itemId, precoEstimado: novoPreco })
+    });
   };
 
   const alterarQuantidade = async (listaId: any, itemId: any, delta: number) => {
@@ -804,7 +830,6 @@ function MainApp() {
     { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
   ];
 
-  // Usa TODOS os cupons cadastrados do banco de dados para montar a lista comparativa
   const cuponsFormatadosParaMercado = (Array.isArray(todosCuponsComunitarios) ? todosCuponsComunitarios : []).map((c: any) => ({
     id: `cupom_${c.id}`,
     idOriginalCupom: c.id,
@@ -918,7 +943,7 @@ function MainApp() {
                 </div>
               ) : (Array.isArray(listas) ? listas : []).map((lista: any) => {
                 const estaAberta = !!listasAbertas[lista.id];
-                const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1 };
+                const inputAtual = inputsItens[lista.id] || { nome: '', qtd: 1, precoEstimado: '' };
                 const itensLista = Array.isArray(lista.itens) ? lista.itens : [];
 
                 return (
@@ -948,27 +973,35 @@ function MainApp() {
                           </button>
                         </div>
 
-                        <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex flex-wrap sm:flex-nowrap gap-2 items-center">
+                        <form onSubmit={(e) => adicionarItem(e, lista.id)} className="p-2.5 bg-gray-50 border-b flex flex-wrap gap-2 items-center">
                           <input
                             type="text"
-                            placeholder="NOME DO ITEM..."
+                            placeholder="NOME DO ITEM (EX: OVO 20UN)..."
                             value={inputAtual.nome}
                             onChange={e => handleInputItemChange(lista.id, 'nome', e.target.value)}
-                            className="flex-1 min-w-[130px] px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
+                            className="flex-1 min-w-[140px] px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold uppercase bg-white text-gray-900"
                             required
                           />
-                          <div className="flex gap-2 shrink-0 w-full sm:w-auto">
-                            <input
-                              type="number"
-                              min="1"
-                              value={inputAtual.qtd}
-                              onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
-                              className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
-                            />
-                            <button type="submit" className="flex-1 sm:flex-none bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 hover:bg-blue-700 transition-all">
-                              + Adicionar
-                            </button>
-                          </div>
+                          <input
+                            type="number"
+                            min="1"
+                            value={inputAtual.qtd}
+                            onChange={e => handleInputItemChange(lista.id, 'qtd', Number(e.target.value))}
+                            className="w-14 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-bold bg-white text-gray-900"
+                            title="Quantidade"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="R$ (Op...)"
+                            value={inputAtual.precoEstimado || ''}
+                            onChange={e => handleInputItemChange(lista.id, 'precoEstimado', e.target.value)}
+                            className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-center font-semibold bg-white text-gray-900"
+                            title="Preço estimativo customizado"
+                          />
+                          <button type="submit" className="bg-[#1877f2] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition-all">
+                            + Add
+                          </button>
                         </form>
 
                         <div className="divide-y">
@@ -993,10 +1026,25 @@ function MainApp() {
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-1.5 shrink-0">
+                              <div className="flex items-center gap-2 shrink-0">
+                                {/* CAMPO DE EDIÇÃO DO PREÇO CUSTOMIZADO */}
+                                <div className="flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+                                  <span className="text-[10px] font-extrabold text-emerald-800">R$</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={item.precoEstimado !== undefined && item.precoEstimado !== null ? item.precoEstimado : ''}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value);
+                                      atualizarPrecoItem(lista.id, item.id, isNaN(val) ? 0 : val);
+                                    }}
+                                    className="w-14 text-xs font-black text-emerald-700 bg-transparent text-right focus:outline-none focus:bg-white rounded px-0.5"
+                                  />
+                                </div>
+
                                 <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
                                   <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, -1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">-</button>
-                                  <span className="w-7 text-center text-xs font-bold">{item.qtd}</span>
+                                  <span className="w-6 text-center text-xs font-bold">{item.qtd}</span>
                                   <button type="button" onClick={() => alterarQuantidade(lista.id, item.id, 1)} className="px-2 py-0.5 bg-gray-100 text-gray-700 font-extrabold text-xs">+</button>
                                 </div>
                                 <button type="button" onClick={() => removerItem(lista.id, item.id)} className="text-red-500 text-xs font-bold px-1">✕</button>
@@ -1120,7 +1168,7 @@ function MainApp() {
                                         </span>
                                       ) : (
                                         <span className="text-[8px] bg-gray-200 text-gray-600 font-semibold px-1.5 py-0.5 rounded">
-                                          Média SEFAZ
+                                          Média SEFAZ/Definido
                                         </span>
                                       )}
                                     </div>
@@ -1343,7 +1391,6 @@ function MainApp() {
                 />
               </div>
 
-              {/* Status de Leitura da URL */}
               <div className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
                 qrUrlInput ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-amber-50 border-amber-300 text-amber-800'
               }`}>
