@@ -102,67 +102,6 @@ const buscarPrecoNoCupom = (itemNomeLista: string, cupomItens: any) => {
   return preco ? Number(preco) : null;
 };
 
-// PARSER MULTI-SETARES DE EXTRAÇÃO CLIENT-SIDE (NFC-e SP E DEMAIS SEFAZs)
-function extrairItensDoHtmlString(htmlString: string) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(htmlString, 'text/html');
-  const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
-
-  const linhas = doc.querySelectorAll('#tabResult tr, table[id*="Item"] tr, #tableItens tr, .table-items tr, tr[id^="Item"]');
-
-  linhas.forEach((el) => {
-    const nomeEl = el.querySelector('.txtTit, .txtTit2, .txtBox, td.fixo-td-descricao, span[id*="lblNome"], .txtTit3, td:nth-child(1)');
-    const precoEl = el.querySelector('.R$, .valor, .Rval, .valorTotal, td.fixo-td-valor, span[id*="lblValorTotal"]');
-    const qtdEl = el.querySelector('.Rqtd, .qtd, .quantidade, td.fixo-td-qtd, span[id*="lblQuantidade"]');
-
-    if (nomeEl && nomeEl.textContent) {
-      const nomeLimpo = nomeEl.textContent.trim().toUpperCase().replace(/\s+/g, ' ');
-      
-      if (
-        nomeLimpo && 
-        nomeLimpo.length > 2 && 
-        !nomeLimpo.includes('CÓDIGO') && 
-        !nomeLimpo.includes('DESCRIÇÃO') &&
-        !nomeLimpo.includes('DESC')
-      ) {
-        let preco = 0;
-        let qtd = 1;
-
-        if (precoEl?.textContent) {
-          const rawPreco = precoEl.textContent.replace('R$', '').replace('.', '').replace(',', '.').trim();
-          preco = parseFloat(rawPreco) || 0;
-        }
-
-        if (qtdEl?.textContent) {
-          const rawQtd = qtdEl.textContent.replace('Qtde.:', '').replace('QTD:', '').replace(',', '.').trim();
-          qtd = parseFloat(rawQtd) || 1;
-        }
-
-        itens.push({ nome: nomeLimpo, preco, qtd });
-      }
-    }
-  });
-
-  if (itens.length === 0) {
-    const produtosDivs = doc.querySelectorAll('div[id*="Item"], div[class*="item-cupom"], .div-item');
-    produtosDivs.forEach((div) => {
-      const nome = div.querySelector('.nome, .descricao, .txtTit')?.textContent?.trim().toUpperCase();
-      const valStr = div.querySelector('.valor, .preco')?.textContent?.replace(',', '.').replace(/[^0-9.]/g, '');
-      const qtdStr = div.querySelector('.qtd, .quantidade')?.textContent?.replace(',', '.').replace(/[^0-9.]/g, '');
-
-      if (nome && nome.length > 2) {
-        itens.push({
-          nome,
-          preco: parseFloat(valStr || '0') || 0,
-          qtd: parseFloat(qtdStr || '1') || 1
-        });
-      }
-    });
-  }
-
-  return itens;
-}
-
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; errorInfo: string }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
@@ -432,7 +371,7 @@ function MainApp() {
     );
   };
 
-  // PROCESSAMENTO DO QR CODE (COM GARANTIA DE ENVIO DA URL E NOME FANTASIA)
+  // ENVIO DIRETO PARA O BACKEND EXTRAIR DA SEFAZ
   const processarCupomQrCode = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -444,41 +383,6 @@ function MainApp() {
     const nomeEstabelecimento = nomeFantasiaInput.trim().toUpperCase() || 'MERCADO VIA QR CODE';
     const urlQrCapturada = qrUrlInput.trim();
 
-    let itensClientSide: Array<{ nome: string; preco: number; qtd: number }> = [];
-
-    if (urlQrCapturada.startsWith('http')) {
-      const proxies = [
-        `https://api.allorigins.win/get?url=${encodeURIComponent(urlQrCapturada)}`,
-        `https://corsproxy.io/?${encodeURIComponent(urlQrCapturada)}`,
-        `https://thingproxy.freeboard.io/fetch/${urlQrCapturada}`
-      ];
-
-      for (const proxyUrl of proxies) {
-        try {
-          const res = await fetch(proxyUrl);
-          if (res.ok) {
-            let htmlText = '';
-            if (proxyUrl.includes('allorigins')) {
-              const json = await res.json();
-              htmlText = json.contents || '';
-            } else {
-              htmlText = await res.text();
-            }
-
-            if (htmlText) {
-              const extraidos = extrairItensDoHtmlString(htmlText);
-              if (extraidos.length > 0) {
-                itensClientSide = extraidos;
-                break;
-              }
-            }
-          }
-        } catch (err) {
-          console.warn(`Proxy falhou (${proxyUrl}):`, err);
-        }
-      }
-    }
-
     try {
       const res = await fetch('/api/cupons', {
         method: 'POST',
@@ -486,10 +390,10 @@ function MainApp() {
         body: JSON.stringify({
           usuario: usuario,
           mercado: nomeEstabelecimento,
-          url: urlQrCapturada, // URL preservada!
+          url: urlQrCapturada,
           data: new Date().toLocaleDateString('pt-BR'),
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          itens: itensClientSide
+          itens: [] // Vazio para o backend acionar a extração do servidor
         })
       });
 
@@ -499,7 +403,13 @@ function MainApp() {
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
-        alert(`✅ Cupom salvo com sucesso! (${cupomSalvo.itens?.length || 0} produtos cadastrados)`);
+
+        const totalItens = cupomSalvo.itens?.length || 0;
+        if (totalItens > 0) {
+          alert(`✅ Cupom salvo com sucesso! (${totalItens} produtos extraídos diretamente da SEFAZ)`);
+        } else {
+          alert(`⚠️ Cupom salvo, mas a SEFAZ não retornou a lista de produtos. Tente novamente mais tarde.`);
+        }
       } else {
         const errorData = await res.json().catch(() => null);
         alert(`❌ Erro ao salvar: ${errorData?.error || 'Tente novamente'}`);

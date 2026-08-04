@@ -1,220 +1,121 @@
 import { NextResponse } from 'next/server';
-import * as cheerio from 'cheerio';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+// Banco em memória simulado (substitua pela conexão com seu banco de dados se houver)
+let bancoCupons: any[] = [];
 
-// Seletor de Fallback para a SEFAZ no servidor
-function extrairItensSefaz(htmlText: string) {
-  const $ = cheerio.load(htmlText);
-  const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
-
-  $('#tabResult tr, table.tr_item, tr[id^="Item"], div[id*="item"], tr[class*="item"]').each((_, el) => {
-    const nome = $(el).find('.txtTit, .txtTit2, .txtTit3, .txtBox, span[class*="nome"], td[class*="produto"]').text().trim().toUpperCase();
-    const precoText = $(el).find('.R$ , .valor, .Rval, .valorTotal, span[class*="valor"]').text().replace(',', '.').replace(/[^0-9.]/g, '');
-    const qtdText = $(el).find('.Rqtd, .qtd, .quantidade, span[class*="qtd"]').text().replace(',', '.').replace(/[^0-9.]/g, '');
-
-    if (nome && nome.length > 2) {
-      itens.push({
-        nome: nome.replace(/\s+/g, ' '),
-        preco: parseFloat(precoText) || 0,
-        qtd: parseFloat(qtdText) || 1,
-      });
-    }
-  });
-
-  return itens;
-}
-
-// GET: Buscar cupons do usuário
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const nomeUsuario = searchParams.get('usuario');
-
-  if (!nomeUsuario) {
-    return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
-  }
-
+// Função que baixa o HTML da SEFAZ direto pelo servidor e extrai os itens
+async function extrairProdutosDaSefazServer(urlQr: string) {
   try {
-    const cupons = await prisma.cupomFiscal.findMany({
-      where: {
-        usuario: {
-          nome: nomeUsuario,
-        },
+    const response = await fetch(urlQr, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
       },
-      include: {
-        mercado: true,
-        itens: {
-          include: {
-            produto: true,
-          },
-        },
-      },
-      orderBy: { criadoEm: 'desc' },
+      cache: 'no-store'
     });
 
-    const cuponsFormatados = cupons.map((c) => ({
-      id: c.id,
-      mercado: c.mercado.nome,
-      url: c.chaveAcesso,
-      data: c.dataEmissao.toLocaleDateString('pt-BR'),
-      hora: c.dataEmissao.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      itens: c.itens.map((i) => ({
-        nome: i.produto.nome,
-        preco: Number(i.precoUnitario),
-        qtd: Number(i.quantidade),
-      })),
-    }));
+    if (!response.ok) return [];
 
-    return NextResponse.json(cuponsFormatados);
-  } catch (err: any) {
-    console.error('Erro ao buscar cupons:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const htmlText = await response.text();
+    const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
+
+    // Captura linhas de tabela no HTML da SEFAZ
+    const rxLinhas = /<tr[^>]*>(.*?)<\/tr>/gis;
+    let matchLinha;
+
+    while ((matchLinha = rxLinhas.exec(htmlText)) !== null) {
+      const conteudoLinha = matchLinha[1];
+
+      // Nome do produto
+      const matchNome = conteudoLinha.match(/class="(?:txtTit|txtTit2|txtBox|fixo-td-descricao)"[^>]*>(.*?)<\/span>/i) ||
+                        conteudoLinha.match(/<td[^>]*class="fixo-td-descricao"[^>]*>(.*?)<\/td>/i);
+      
+      // Valor do produto
+      const matchValor = conteudoLinha.match(/class="(?:R\$|valor|Rval|valorTotal|fixo-td-valor)"[^>]*>(.*?)<\/span>/i) ||
+                         conteudoLinha.match(/<td[^>]*class="fixo-td-valor"[^>]*>(.*?)<\/td>/i);
+
+      // Quantidade
+      const matchQtd = conteudoLinha.match(/class="(?:Rqtd|qtd|quantidade|fixo-td-qtd)"[^>]*>(.*?)<\/span>/i) ||
+                       conteudoLinha.match(/<td[^>]*class="fixo-td-qtd"[^>]*>(.*?)<\/td>/i);
+
+      if (matchNome && matchNome[1]) {
+        const nomeLimpo = matchNome[1].replace(/<[^>]+>/g, '').trim().toUpperCase();
+        
+        if (nomeLimpo && nomeLimpo.length > 2 && !nomeLimpo.includes('CÓDIGO') && !nomeLimpo.includes('DESCRIÇÃO')) {
+          let preco = 0;
+          let qtd = 1;
+
+          if (matchValor && matchValor[1]) {
+            const valStr = matchValor[1].replace(/<[^>]+>/g, '').replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+            preco = parseFloat(valStr) || 0;
+          }
+
+          if (matchQtd && matchQtd[1]) {
+            const qtdStr = matchQtd[1].replace(/<[^>]+>/g, '').replace(/[^0-9,.]/g, '').replace(',', '.').trim();
+            qtd = parseFloat(qtdStr) || 1;
+          }
+
+          itens.push({ nome: nomeLimpo, preco, qtd });
+        }
+      }
+    }
+
+    return itens;
+  } catch (error) {
+    console.error('Erro ao extrair produtos na SEFAZ pelo servidor:', error);
+    return [];
   }
 }
 
-// POST: Salvar Cupom e Relacionamentos
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const usuario = searchParams.get('usuario');
+  
+  if (!usuario) return NextResponse.json([]);
+  
+  const cuponsUsuario = bancoCupons.filter(c => c.usuario === usuario);
+  return NextResponse.json(cuponsUsuario);
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { usuario: nomeUsuario, mercado: nomeMercado, url, itens: itensPayload } = body;
+    const { usuario, mercado, url, data, hora, itens: itensEnviados } = body;
 
-    if (!nomeUsuario) {
-      return NextResponse.json({ error: 'Usuário é obrigatório' }, { status: 400 });
+    let produtosFinais = Array.isArray(itensEnviados) ? itensEnviados : [];
+
+    // Se o cliente não enviou itens, o servidor busca diretamente na SEFAZ
+    if (produtosFinais.length === 0 && url && url.startsWith('http')) {
+      produtosFinais = await extrairProdutosDaSefazServer(url);
     }
 
-    // 1. Usuário
-    let usuarioEncontrado = await prisma.usuario.findFirst({
-      where: { nome: nomeUsuario },
-    });
+    const novoCupom = {
+      id: Date.now().toString(),
+      usuario,
+      mercado: mercado || 'MERCADO VIA QR CODE',
+      url,
+      data: data || new Date().toLocaleDateString('pt-BR'),
+      hora: hora || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      itens: produtosFinais
+    };
 
-    if (!usuarioEncontrado) {
-      usuarioEncontrado = await prisma.usuario.create({
-        data: { nome: nomeUsuario },
-      });
-    }
+    bancoCupons.unshift(novoCupom);
 
-    // 2. Mercado
-    let mercadoEncontrado = await prisma.mercado.findFirst({
-      where: { nome: (nomeMercado || 'MERCADO VIA QR CODE').toUpperCase() },
-    });
-
-    if (!mercadoEncontrado) {
-      mercadoEncontrado = await prisma.mercado.create({
-        data: { nome: (nomeMercado || 'MERCADO VIA QR CODE').toUpperCase() },
-      });
-    }
-
-    // 3. Processamento dos Itens
-    let itensParaSalvar: Array<{ nome: string; preco: number; qtd: number }> = [];
-
-    // Prioridade 1: Utiliza os itens coletados diretamente no cliente
-    if (Array.isArray(itensPayload) && itensPayload.length > 0) {
-      itensParaSalvar = itensPayload;
-    } else if (url && url.startsWith('http')) {
-      // Prioridade 2: Tenta raspagem no servidor caso não venham do cliente
-      try {
-        const responseSefaz = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          },
-        });
-
-        if (responseSefaz.ok) {
-          const html = await responseSefaz.text();
-          itensParaSalvar = extrairItensSefaz(html);
-        }
-      } catch (errScraping) {
-        console.error('Bloqueio ou falha de raspagem no servidor:', errScraping);
-      }
-    }
-
-    const valorTotalCalculado = itensParaSalvar.reduce(
-      (acc, item) => acc + (Number(item.preco) * Number(item.qtd)),
-      0
-    );
-
-    const chaveGerada = (url && url.trim().length > 5) ? url : `CUPOM_${Date.now()}`;
-
-    // 4. Salva o Cupom Fiscal
-    const novoCupom = await prisma.cupomFiscal.create({
-      data: {
-        chaveAcesso: chaveGerada,
-        valorTotal: valorTotalCalculado,
-        mercadoId: mercadoEncontrado.id,
-        usuarioId: usuarioEncontrado.id,
-      },
-    });
-
-    // 5. Vincula produtos e histórico
-    const itensFormatadosParaFrontend = [];
-
-    for (const item of itensParaSalvar) {
-      const nomeLimpo = (item.nome || 'PRODUTO').trim().toUpperCase();
-
-      let produto = await prisma.produto.findUnique({
-        where: { nome: nomeLimpo },
-      });
-
-      if (!produto) {
-        produto = await prisma.produto.create({
-          data: { nome: nomeLimpo },
-        });
-      }
-
-      await prisma.itemCupom.create({
-        data: {
-          cupomId: novoCupom.id,
-          produtoId: produto.id,
-          quantidade: item.qtd || 1,
-          precoUnitario: item.preco || 0,
-        },
-      });
-
-      await prisma.historicoPrecoPublico.create({
-        data: {
-          preco: item.preco || 0,
-          produtoId: produto.id,
-          mercadoId: mercadoEncontrado.id,
-        },
-      });
-
-      itensFormatadosParaFrontend.push({
-        nome: produto.nome,
-        preco: Number(item.preco || 0),
-        qtd: Number(item.qtd || 1),
-      });
-    }
-
-    return NextResponse.json({
-      id: novoCupom.id,
-      mercado: mercadoEncontrado.nome,
-      url: novoCupom.chaveAcesso,
-      data: novoCupom.dataEmissao.toLocaleDateString('pt-BR'),
-      hora: novoCupom.dataEmissao.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      itens: itensFormatadosParaFrontend,
-    });
-  } catch (err: any) {
-    console.error('Erro ao salvar CupomFiscal:', err);
-    return NextResponse.json({ error: err.message || 'Erro interno no servidor' }, { status: 500 });
+    return NextResponse.json(novoCupom, { status: 201 });
+  } catch (error) {
+    console.error('Erro na API de cupons:', error);
+    return NextResponse.json({ error: 'Erro ao processar cupom' }, { status: 500 });
   }
 }
 
-// DELETE: Deletar cupom
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
 
-  if (!id) {
-    return NextResponse.json({ error: 'ID do cupom é obrigatório' }, { status: 400 });
-  }
-
-  try {
-    await prisma.cupomFiscal.delete({
-      where: { id: Number(id) },
-    });
+  if (id) {
+    bancoCupons = bancoCupons.filter(c => c.id !== id);
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
   }
+  return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
 }
