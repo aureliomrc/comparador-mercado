@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 
-// Banco em memória global simulado
+// Banco de dados em memória global
 let bancoCupons: any[] = [];
 
-// Função que baixa o HTML da SEFAZ direto pelo servidor e extrai os itens
+// Função para extrair produtos diretamente do HTML da SEFAZ
 async function extrairProdutosDaSefazServer(urlQr: string) {
   try {
     const response = await fetch(urlQr, {
@@ -20,22 +20,19 @@ async function extrairProdutosDaSefazServer(urlQr: string) {
     const htmlText = await response.text();
     const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-    // Usando [\s\S]*? sem a flag 's' para compatibilidade total
+    // Expressão regular compatível sem flag 's'
     const rxLinhas = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let matchLinha;
 
     while ((matchLinha = rxLinhas.exec(htmlText)) !== null) {
       const conteudoLinha = matchLinha[1];
 
-      // Nome do produto
       const matchNome = conteudoLinha.match(/class="(?:txtTit|txtTit2|txtBox|fixo-td-descricao)"[^>]*>(.*?)<\/span>/i) ||
                         conteudoLinha.match(/<td[^>]*class="fixo-td-descricao"[^>]*>(.*?)<\/td>/i);
       
-      // Valor do produto
       const matchValor = conteudoLinha.match(/class="(?:R\$|valor|Rval|valorTotal|fixo-td-valor)"[^>]*>(.*?)<\/span>/i) ||
                          conteudoLinha.match(/<td[^>]*class="fixo-td-valor"[^>]*>(.*?)<\/td>/i);
 
-      // Quantidade
       const matchQtd = conteudoLinha.match(/class="(?:Rqtd|qtd|quantidade|fixo-td-qtd)"[^>]*>(.*?)<\/span>/i) ||
                        conteudoLinha.match(/<td[^>]*class="fixo-td-qtd"[^>]*>(.*?)<\/td>/i);
 
@@ -63,7 +60,7 @@ async function extrairProdutosDaSefazServer(urlQr: string) {
 
     return itens;
   } catch (error) {
-    console.error('Erro ao extrair produtos na SEFAZ pelo servidor:', error);
+    console.error('Erro ao extrair produtos na SEFAZ:', error);
     return [];
   }
 }
@@ -73,15 +70,15 @@ export async function GET(req: Request) {
   const usuario = searchParams.get('usuario');
   const todos = searchParams.get('todos');
   
-  // Se solicitar "todos=true", retorna os cupons de TODOS os usuários para a comparação global
+  // Retorna TODOS os cupons cadastrados no banco (para a Comparação Global)
   if (todos === 'true') {
     return NextResponse.json(bancoCupons);
   }
 
-  // Se passar um usuário específico, retorna apenas os cupons dele (para a aba de Meus Cupons)
+  // Retorna os cupons pertencentes ao usuário logado (para o Histórico de Cupons)
   if (usuario) {
-    const cuponsUsuario = bancoCupons.filter(c => c.usuario === usuario);
-    return NextResponse.json(cuponsUsuario);
+    const cuponsDoUsuario = bancoCupons.filter(c => c.usuario === usuario);
+    return NextResponse.json(cuponsDoUsuario);
   }
   
   return NextResponse.json(bancoCupons);
@@ -94,14 +91,14 @@ export async function POST(req: Request) {
 
     let produtosFinais = Array.isArray(itensEnviados) ? itensEnviados : [];
 
-    // Se o cliente não enviou itens, o servidor busca diretamente na SEFAZ
+    // Tenta baixar e raspar o HTML da SEFAZ se os itens não forem enviados pelo front
     if (produtosFinais.length === 0 && url && url.startsWith('http')) {
       produtosFinais = await extrairProdutosDaSefazServer(url);
     }
 
     const novoCupom = {
       id: Date.now().toString(),
-      usuario,
+      usuario: usuario || 'anonimo',
       mercado: mercado || 'MERCADO VIA QR CODE',
       url,
       data: data || new Date().toLocaleDateString('pt-BR'),
@@ -109,12 +106,13 @@ export async function POST(req: Request) {
       itens: produtosFinais
     };
 
+    // Insere no topo da lista
     bancoCupons.unshift(novoCupom);
 
     return NextResponse.json(novoCupom, { status: 201 });
   } catch (error) {
     console.error('Erro na API de cupons:', error);
-    return NextResponse.json({ error: 'Erro ao processar cupom' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro ao salvar cupom' }, { status: 500 });
   }
 }
 
