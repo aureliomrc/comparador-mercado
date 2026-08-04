@@ -368,7 +368,7 @@ function MainApp() {
           }
         } catch (err) {
           console.error('Erro ao buscar mercados via GPS:', err);
-        } fontally {
+        } finally {
           setLoadingGeo(false);
         }
       },
