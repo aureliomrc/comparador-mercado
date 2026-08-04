@@ -20,7 +20,6 @@ async function extrairProdutosDaSefazServer(urlQr: string) {
     const htmlText = await response.text();
     const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-    // Expressão regular compatível sem flag 's'
     const rxLinhas = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let matchLinha;
 
@@ -65,22 +64,8 @@ async function extrairProdutosDaSefazServer(urlQr: string) {
   }
 }
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const usuario = searchParams.get('usuario');
-  const todos = searchParams.get('todos');
-  
-  // Retorna TODOS os cupons cadastrados no banco (para a Comparação Global)
-  if (todos === 'true') {
-    return NextResponse.json(bancoCupons);
-  }
-
-  // Retorna os cupons pertencentes ao usuário logado (para o Histórico de Cupons)
-  if (usuario) {
-    const cuponsDoUsuario = bancoCupons.filter(c => c.usuario === usuario);
-    return NextResponse.json(cuponsDoUsuario);
-  }
-  
+export async function GET() {
+  // Retorna TODOS os cupons do banco para visualização global
   return NextResponse.json(bancoCupons);
 }
 
@@ -91,7 +76,6 @@ export async function POST(req: Request) {
 
     let produtosFinais = Array.isArray(itensEnviados) ? itensEnviados : [];
 
-    // Tenta baixar e raspar o HTML da SEFAZ se os itens não forem enviados pelo front
     if (produtosFinais.length === 0 && url && url.startsWith('http')) {
       produtosFinais = await extrairProdutosDaSefazServer(url);
     }
@@ -106,7 +90,6 @@ export async function POST(req: Request) {
       itens: produtosFinais
     };
 
-    // Insere no topo da lista
     bancoCupons.unshift(novoCupom);
 
     return NextResponse.json(novoCupom, { status: 201 });
@@ -119,10 +102,19 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
+  const usuario = searchParams.get('usuario');
 
-  if (id) {
-    bancoCupons = bancoCupons.filter(c => c.id !== id);
-    return NextResponse.json({ success: true });
+  const cupom = bancoCupons.find(c => c.id === id);
+
+  if (!cupom) {
+    return NextResponse.json({ error: 'Cupom não encontrado' }, { status: 404 });
   }
-  return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
+
+  // Trava de segurança: apenas o autor pode deletar
+  if (cupom.usuario !== usuario) {
+    return NextResponse.json({ error: 'Você só pode excluir cupons cadastrados por você!' }, { status: 403 });
+  }
+
+  bancoCupons = bancoCupons.filter(c => c.id !== id);
+  return NextResponse.json({ success: true });
 }
