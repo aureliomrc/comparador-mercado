@@ -175,16 +175,26 @@ function MainApp() {
   const [qrUrlInput, setQrUrlInput] = useState('');
   const [nomeFantasiaInput, setNomeFantasiaInput] = useState('');
   const [historicoCupons, setHistoricoCupons] = useState<any[]>([]);
+  const [todosCuponsComunitarios, setTodosCuponsComunitarios] = useState<any[]>([]);
   const [cameraError, setCameraError] = useState('');
   const qrScannerRef = useRef<Html5Qrcode | null>(null);
 
+  // Carrega cupons do usuário e também TODOS os cupons cadastrados da comunidade
   const carregarCuponsDoBanco = async () => {
     setLoadingCupons(true);
     try {
-      const res = await fetch(`/api/cupons?usuario=${encodeURIComponent(usuario)}`, { cache: 'no-store' });
-      if (res.ok) {
-        const dados = await res.json();
+      // 1. Puxa os cupons do usuário logado
+      const resUser = await fetch(`/api/cupons?usuario=${encodeURIComponent(usuario)}`, { cache: 'no-store' });
+      if (resUser.ok) {
+        const dados = await resUser.json();
         setHistoricoCupons(Array.isArray(dados) ? dados : []);
+      }
+
+      // 2. Puxa TODOS os cupons de todos os usuários para a Comparação
+      const resTodos = await fetch(`/api/cupons?todos=true`, { cache: 'no-store' });
+      if (resTodos.ok) {
+        const dadosTodos = await resTodos.json();
+        setTodosCuponsComunitarios(Array.isArray(dadosTodos) ? dadosTodos : []);
       }
     } catch (error) {
       console.error('Erro ao buscar cupons do banco:', error);
@@ -267,6 +277,7 @@ function MainApp() {
     setIsLogged(false);
     setListas([]);
     setHistoricoCupons([]);
+    setTodosCuponsComunitarios([]);
     setUsuario('');
     setScreen('login');
   };
@@ -371,7 +382,6 @@ function MainApp() {
     );
   };
 
-  // ENVIO DIRETO PARA O BACKEND EXTRAIR DA SEFAZ
   const processarCupomQrCode = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -393,20 +403,22 @@ function MainApp() {
           url: urlQrCapturada,
           data: new Date().toLocaleDateString('pt-BR'),
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          itens: [] // Vazio para o backend acionar a extração do servidor
+          itens: []
         })
       });
 
       if (res.ok) {
         const cupomSalvo = await res.json();
-        setHistoricoCupons(prev => [cupomSalvo, ...(Array.isArray(prev) ? prev : [])]);
         setQrUrlInput('');
         setNomeFantasiaInput('');
         fecharModalQr();
 
+        // Recarrega do banco tanto os seus cupons quanto os comunitários
+        await carregarCuponsDoBanco();
+
         const totalItens = cupomSalvo.itens?.length || 0;
         if (totalItens > 0) {
-          alert(`✅ Cupom salvo com sucesso! (${totalItens} produtos extraídos diretamente da SEFAZ)`);
+          alert(`✅ Cupom salvo no banco de dados! (${totalItens} produtos extraídos diretamente da SEFAZ e visíveis na comparação)`);
         } else {
           alert(`⚠️ Cupom salvo, mas a SEFAZ não retornou a lista de produtos. Tente novamente mais tarde.`);
         }
@@ -427,7 +439,7 @@ function MainApp() {
       try {
         const res = await fetch(`/api/cupons?id=${id}&usuario=${encodeURIComponent(usuario)}`, { method: 'DELETE' });
         if (res.ok) {
-          setHistoricoCupons(prev => prev.filter((c: any) => c.id !== id));
+          await carregarCuponsDoBanco();
         } else {
           alert('Erro ao excluir do banco de dados.');
         }
@@ -792,13 +804,14 @@ function MainApp() {
     { id: 103, nome: 'PÃO DE AÇÚCAR', distancia: '3.1 km', fatorPreco: 1.08, tag: 'MERCADO', corTag: 'bg-blue-100 text-blue-800' }
   ];
 
-  const cuponsFormatadosParaMercado = (Array.isArray(historicoCupons) ? historicoCupons : []).map((c: any) => ({
+  // Usa TODOS os cupons cadastrados do banco de dados para montar a lista comparativa
+  const cuponsFormatadosParaMercado = (Array.isArray(todosCuponsComunitarios) ? todosCuponsComunitarios : []).map((c: any) => ({
     id: `cupom_${c.id}`,
     idOriginalCupom: c.id,
     nome: renderTexto(c.mercado, 'MERCADO VIA CUPOM'),
-    distancia: `Bipado em ${c.data || 'Hoje'} às ${c.hora || ''}`,
-    tag: c.tag || 'CUPOM FISCAL',
-    corTag: c.corTag || 'bg-purple-100 text-purple-800',
+    distancia: `Enviado por @${c.usuario || 'comunidade'} em ${c.data || 'Hoje'}`,
+    tag: c.usuario === usuario ? 'MEU CUPOM' : 'CUPOM COMUNITÁRIO',
+    corTag: c.usuario === usuario ? 'bg-purple-100 text-purple-800' : 'bg-amber-100 text-amber-800',
     isCupom: true,
     itensCupom: obterItensCupom(c)
   }));
@@ -1152,7 +1165,7 @@ function MainApp() {
             <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
-                  Cupons Salvos ({historicoCupons.length})
+                  Seus Cupons Salvos ({historicoCupons.length})
                 </h3>
                 <button onClick={carregarCuponsDoBanco} className="text-xs text-purple-600 font-bold hover:underline">
                   🔄 Atualizar

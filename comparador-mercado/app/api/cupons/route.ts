@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// Banco em memória simulado (substitua pela conexão com seu banco de dados se houver)
+// Banco em memória global simulado
 let bancoCupons: any[] = [];
 
 // Função que baixa o HTML da SEFAZ direto pelo servidor e extrai os itens
@@ -20,8 +20,8 @@ async function extrairProdutosDaSefazServer(urlQr: string) {
     const htmlText = await response.text();
     const itens: Array<{ nome: string; preco: number; qtd: number }> = [];
 
-    // Captura linhas de tabela no HTML da SEFAZ
-   const rxLinhas = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    // Usando [\s\S]*? sem a flag 's' para compatibilidade total
+    const rxLinhas = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let matchLinha;
 
     while ((matchLinha = rxLinhas.exec(htmlText)) !== null) {
@@ -71,11 +71,20 @@ async function extrairProdutosDaSefazServer(urlQr: string) {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const usuario = searchParams.get('usuario');
+  const todos = searchParams.get('todos');
   
-  if (!usuario) return NextResponse.json([]);
+  // Se solicitar "todos=true", retorna os cupons de TODOS os usuários para a comparação global
+  if (todos === 'true') {
+    return NextResponse.json(bancoCupons);
+  }
+
+  // Se passar um usuário específico, retorna apenas os cupons dele (para a aba de Meus Cupons)
+  if (usuario) {
+    const cuponsUsuario = bancoCupons.filter(c => c.usuario === usuario);
+    return NextResponse.json(cuponsUsuario);
+  }
   
-  const cuponsUsuario = bancoCupons.filter(c => c.usuario === usuario);
-  return NextResponse.json(cuponsUsuario);
+  return NextResponse.json(bancoCupons);
 }
 
 export async function POST(req: Request) {
